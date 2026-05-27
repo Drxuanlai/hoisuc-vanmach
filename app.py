@@ -715,12 +715,6 @@ else:
     st.info(
         "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu xác suất nhiễm khuẩn thấp."
     )
-    elif timing_level == "RED":
-        st.error(timing_text)
-    elif timing_level == "ORANGE":
-        st.warning(timing_text)
-    else:
-        st.info(timing_text)
 
     st.subheader("8.2. Ổ nhiễm nghi ngờ và bối cảnh mắc phải")
 
