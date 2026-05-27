@@ -22,6 +22,7 @@ from antibiotic_logic import (
     antibiotic_timing_advice,
     recommend_antibiotic_coverage,
 )
+from antibiotic_presets_local import ANTIBIOTIC_PROTOCOLS
 
 # ============================================================
 # Shock Resuscitation Mini-App By DR.XuanLai
