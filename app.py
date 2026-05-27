@@ -26,11 +26,21 @@ from antibiotic_logic import (
 )
 from antibiotic_presets_local import ANTIBIOTIC_PROTOCOLS
 from antibiotic_dosing import (
+    ANTIBIOTIC_DICT,
     ANTIBIOTIC_DOSING,
     calculate_crcl,
     choose_weight_for_cg,
     generate_antibiotic_clinical_alerts,
     get_antibiotic_dose_recommendation,
+)
+from pkpd_tools import (
+    calculate_vanco_auc_2level,
+    estimate_vanco_daily_dose_for_target_auc,
+    convert_colistin_units,
+)
+from vanco_bayesian import (
+    vanco_map_bayesian_estimate,
+    suggest_vanco_regimen_from_auc,
 )
 
 # ============================================================
@@ -1038,7 +1048,182 @@ if enable_antibiotic_module:
             else:
                 st.info(message)
 
-    st.subheader("8.7. Stewardship và review sau 24–48–72 giờ")
+
+    st.subheader("8.7. PK/PD nâng cao: Vancomycin AUC và Colistin unit converter")
+
+    pkpd_tool = st.selectbox(
+        "Chọn công cụ PK/PD",
+        [
+            "Không dùng",
+            "Vancomycin AUC24/MIC - 1-compartment 2-level",
+            "Vancomycin AUC24/MIC - Bayesian-like MAP estimator",
+            "Chuyển đổi đơn vị Colistin",
+        ],
+        key="pkpd_tool_selector",
+    )
+
+    if pkpd_tool == "Vancomycin AUC24/MIC - 1-compartment 2-level":
+        st.warning(
+            "Công cụ này chỉ là ước tính 1-compartment, 2-level method. "
+            "Không thay thế Bayesian software, dược lâm sàng hoặc protocol TDM của bệnh viện. "
+            "Đích thường dùng cho nhiễm MRSA nặng: AUC24/MIC 400–600."
+        )
+
+        col_vanco1, col_vanco2, col_vanco3 = st.columns(3)
+        with col_vanco1:
+            vanco_dose_mg = st.number_input("Liều Vancomycin mỗi lần (mg)", min_value=1.0, max_value=5000.0, value=1000.0, step=250.0, key="vanco_auc_dose")
+            tau_hr = st.number_input("Khoảng cách liều tau (giờ)", min_value=1.0, max_value=72.0, value=12.0, step=1.0, key="vanco_auc_tau")
+            infusion_time_hr = st.number_input("Thời gian truyền (giờ)", min_value=0.25, max_value=8.0, value=1.0, step=0.25, key="vanco_auc_infusion")
+        with col_vanco2:
+            peak_mg_l = st.number_input("Nồng độ peak/post-distribution (mg/L)", min_value=0.1, max_value=100.0, value=25.0, step=0.5, key="vanco_auc_peak")
+            time_peak_after_start_hr = st.number_input("Thời điểm lấy peak từ lúc bắt đầu truyền (giờ)", min_value=0.25, max_value=72.0, value=2.0, step=0.25, key="vanco_auc_peak_time")
+            trough_mg_l = st.number_input("Nồng độ trough (mg/L)", min_value=0.1, max_value=100.0, value=15.0, step=0.5, key="vanco_auc_trough")
+        with col_vanco3:
+            time_trough_after_start_hr = st.number_input("Thời điểm lấy trough từ lúc bắt đầu truyền (giờ)", min_value=0.5, max_value=96.0, value=12.0, step=0.5, key="vanco_auc_trough_time")
+            mic_mg_l = st.number_input("MIC Vancomycin (mg/L)", min_value=0.25, max_value=4.0, value=1.0, step=0.25, key="vanco_auc_mic")
+            target_auc = st.number_input("Target AUC24 mong muốn", min_value=300.0, max_value=800.0, value=500.0, step=25.0, key="vanco_auc_target")
+
+        try:
+            auc_result = calculate_vanco_auc_2level(
+                dose_mg=vanco_dose_mg,
+                infusion_time_hr=infusion_time_hr,
+                tau_hr=tau_hr,
+                peak_mg_l=peak_mg_l,
+                trough_mg_l=trough_mg_l,
+                time_peak_after_start_hr=time_peak_after_start_hr,
+                time_trough_after_start_hr=time_trough_after_start_hr,
+                mic_mg_l=mic_mg_l,
+            )
+            current_daily_dose = vanco_dose_mg * (24 / tau_hr)
+            suggested_daily_dose = estimate_vanco_daily_dose_for_target_auc(
+                current_daily_dose_mg=current_daily_dose,
+                current_auc24=auc_result["auc24_mg_h_l"],
+                target_auc24=target_auc,
+            )
+            col_auc1, col_auc2, col_auc3, col_auc4 = st.columns(4)
+            col_auc1.metric("AUC24", f"{auc_result['auc24_mg_h_l']:.0f} mg·h/L")
+            col_auc2.metric("AUC24/MIC", f"{auc_result['auc24_mic']:.0f}")
+            col_auc3.metric("t1/2", f"{auc_result['half_life_hr']:.1f} giờ")
+            col_auc4.metric("CL", f"{auc_result['cl_l_hr']:.2f} L/giờ")
+            if auc_result["level"] == "LOW":
+                st.warning(auc_result["interpretation"])
+            elif auc_result["level"] == "TARGET":
+                st.success(auc_result["interpretation"])
+            else:
+                st.error(auc_result["interpretation"])
+            st.info(
+                f"Tổng liều/ngày hiện tại ≈ {current_daily_dose:.0f} mg/ngày. "
+                f"Nếu muốn target AUC24 ≈ {target_auc:.0f}, tổng liều/ngày ước tính theo tỷ lệ tuyến tính ≈ {suggested_daily_dose:.0f} mg/ngày."
+            )
+            if ckd_any or anuric_ckd or on_hemodialysis_for_dosing:
+                st.error("CKD/ESRD/lọc máu hoặc chức năng thận không ổn định: không dùng ước tính này để tự chỉnh liều duy trì. Cần TDM/dược lâm sàng.")
+        except ValueError as e:
+            st.error(f"Không tính được AUC: {e}")
+
+    elif pkpd_tool == "Vancomycin AUC24/MIC - Bayesian-like MAP estimator":
+        st.error(
+            "Đây là Bayesian-like MAP estimator dùng cho học/tính nhanh, KHÔNG phải Bayesian software đã validate. "
+            "Không dùng đơn độc để kê liều ICU/AKI/CRRT/ESRD."
+        )
+        col_bayes1, col_bayes2, col_bayes3 = st.columns(3)
+        with col_bayes1:
+            vanco_dose_mg = st.number_input("Liều Vancomycin mỗi lần (mg)", min_value=1.0, max_value=5000.0, value=1000.0, step=250.0, key="bayes_vanco_dose")
+            tau_hr = st.number_input("Khoảng cách liều tau (giờ)", min_value=1.0, max_value=72.0, value=12.0, step=1.0, key="bayes_vanco_tau")
+            infusion_time_hr = st.number_input("Thời gian truyền mỗi liều (giờ)", min_value=0.25, max_value=8.0, value=1.0, step=0.25, key="bayes_vanco_infusion")
+        with col_bayes2:
+            num_doses_given = st.number_input("Số liều đã dùng trước khi lấy mẫu", min_value=1, max_value=20, value=3, step=1, key="bayes_vanco_num_doses")
+            mic_mg_l = st.number_input("MIC Vancomycin (mg/L)", min_value=0.25, max_value=4.0, value=1.0, step=0.25, key="bayes_vanco_mic")
+            target_auc24 = st.number_input("Target AUC24", min_value=300.0, max_value=800.0, value=500.0, step=25.0, key="bayes_vanco_target_auc")
+        with col_bayes3:
+            sigma_level = st.number_input("Sai số nồng độ giả định sigma (mg/L)", min_value=0.5, max_value=10.0, value=2.0, step=0.5, key="bayes_sigma")
+            omega_cl_cv = st.number_input("Prior variability CL", min_value=0.05, max_value=1.0, value=0.30, step=0.05, key="bayes_omega_cl")
+            omega_vd_cv = st.number_input("Prior variability Vd", min_value=0.05, max_value=1.0, value=0.30, step=0.05, key="bayes_omega_vd")
+
+        st.write("Nhập nồng độ đo được. Thời gian tính từ lúc bắt đầu liều đầu tiên trong chuỗi liều.")
+        level_col1, level_col2 = st.columns(2)
+        with level_col1:
+            level1_time = st.number_input("Level 1 - thời điểm lấy mẫu (giờ)", min_value=0.1, max_value=200.0, value=2.0, step=0.5, key="bayes_level1_time")
+            level1_conc = st.number_input("Level 1 - nồng độ (mg/L)", min_value=0.1, max_value=100.0, value=25.0, step=0.5, key="bayes_level1_conc")
+        with level_col2:
+            level2_time = st.number_input("Level 2 - thời điểm lấy mẫu (giờ)", min_value=0.1, max_value=200.0, value=12.0, step=0.5, key="bayes_level2_time")
+            level2_conc = st.number_input("Level 2 - nồng độ (mg/L)", min_value=0.1, max_value=100.0, value=15.0, step=0.5, key="bayes_level2_conc")
+            use_second_level = st.checkbox("Dùng level 2", value=True, key="bayes_use_level2")
+
+        levels = [{"time_hr": level1_time, "concentration_mg_l": level1_conc}]
+        if use_second_level:
+            levels.append({"time_hr": level2_time, "concentration_mg_l": level2_conc})
+
+        try:
+            bayes_result = vanco_map_bayesian_estimate(
+                dose_mg=vanco_dose_mg,
+                infusion_time_hr=infusion_time_hr,
+                tau_hr=tau_hr,
+                num_doses_given=int(num_doses_given),
+                levels=levels,
+                age=age_years,
+                weight_kg=weight_kg,
+                crcl_ml_min=egfr,
+                is_male=is_male,
+                mic_mg_l=mic_mg_l,
+                sigma_level_mg_l=sigma_level,
+                omega_cl_cv=omega_cl_cv,
+                omega_vd_cv=omega_vd_cv,
+            )
+            dose_suggestion = suggest_vanco_regimen_from_auc(
+                current_dose_mg=vanco_dose_mg,
+                current_tau_hr=tau_hr,
+                current_auc24=bayes_result["auc24_mg_h_l"],
+                target_auc24=target_auc24,
+            )
+            col_res1, col_res2, col_res3, col_res4 = st.columns(4)
+            col_res1.metric("AUC24", f"{bayes_result['auc24_mg_h_l']:.0f}")
+            col_res2.metric("AUC24/MIC", f"{bayes_result['auc24_mic']:.0f}")
+            col_res3.metric("CL posterior", f"{bayes_result['posterior_cl_l_hr']:.2f} L/h")
+            col_res4.metric("Vd posterior", f"{bayes_result['posterior_vd_l']:.1f} L")
+            col_res5, col_res6, col_res7 = st.columns(3)
+            col_res5.metric("t1/2", f"{bayes_result['half_life_hr']:.1f} h")
+            col_res6.metric("Prior CL", f"{bayes_result['prior_cl_l_hr']:.2f} L/h")
+            col_res7.metric("Prior Vd", f"{bayes_result['prior_vd_l']:.1f} L")
+            if bayes_result["level"] == "LOW":
+                st.warning(bayes_result["interpretation"])
+            elif bayes_result["level"] == "TARGET":
+                st.success(bayes_result["interpretation"])
+            else:
+                st.error(bayes_result["interpretation"])
+            st.info(
+                f"Tổng liều/ngày hiện tại ≈ {dose_suggestion['current_total_daily_dose_mg']:.0f} mg/ngày. "
+                f"Nếu muốn target AUC24 ≈ {target_auc24:.0f}, tổng liều/ngày ước tính ≈ {dose_suggestion['suggested_total_daily_dose_mg']:.0f} mg/ngày."
+            )
+            if ckd_any or anuric_ckd or on_hemodialysis_for_dosing:
+                st.error("CKD/ESRD/lọc máu hoặc chức năng thận không ổn định: không dùng kết quả Bayesian-like này để tự chỉnh liều duy trì. Cần TDM chính thức/dược lâm sàng.")
+        except Exception as e:
+            st.error(f"Không tính được Bayesian-like AUC: {e}")
+
+    elif pkpd_tool == "Chuyển đổi đơn vị Colistin":
+        st.warning(
+            "Colistin có nguy cơ nhầm đơn vị rất cao. Cần xác định nhãn thuốc đang ghi MIU, mg CBA hay mg CMS. "
+            "Quy ước dùng trong app: 1 MIU ≈ 30 mg CBA; 1 mg CBA ≈ 2.67 mg CMS."
+        )
+        col_colistin1, col_colistin2 = st.columns(2)
+        with col_colistin1:
+            colistin_value = st.number_input("Giá trị cần quy đổi", min_value=0.0, max_value=10000.0, value=9.0, step=0.5, key="colistin_convert_value")
+        with col_colistin2:
+            colistin_unit = st.selectbox("Đơn vị hiện tại", ["MIU", "mg CBA", "mg CMS"], index=0, key="colistin_convert_unit")
+        try:
+            conv = convert_colistin_units(value=colistin_value, from_unit=colistin_unit)
+            col_conv1, col_conv2, col_conv3 = st.columns(3)
+            col_conv1.metric("MIU", f"{conv['MIU']:.2f}")
+            col_conv2.metric("mg CBA", f"{conv['mg CBA']:.0f} mg")
+            col_conv3.metric("mg CMS", f"{conv['mg CMS']:.0f} mg")
+            st.info(
+                f"{colistin_value:g} {colistin_unit} ≈ {conv['MIU']:.2f} MIU ≈ "
+                f"{conv['mg CBA']:.0f} mg CBA ≈ {conv['mg CMS']:.0f} mg CMS."
+            )
+            st.error("Không trộn lẫn CBA và CMS khi kê đơn. Hãy ghi rõ đơn vị trên y lệnh và đối chiếu dạng thuốc bệnh viện đang có.")
+        except ValueError as e:
+            st.error(f"Không quy đổi được: {e}")
+
+    st.subheader("8.8. Stewardship và review sau 24–48–72 giờ")
     st.write("- Đánh giá lại chẩn đoán nhiễm khuẩn khi có diễn tiến lâm sàng, hình ảnh học và kết quả cấy.")
     st.write("- Xuống thang kháng sinh khi có kháng sinh đồ hoặc khi xác suất MDR thấp.")
     st.write("- Ngưng kháng sinh nếu xác suất nhiễm khuẩn thấp và có chẩn đoán thay thế phù hợp.")
