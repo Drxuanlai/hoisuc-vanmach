@@ -675,11 +675,46 @@ if enable_antibiotic_module:
 
     st.subheader("8.1. Thời điểm dùng kháng sinh")
 
-    if map_mmHg >= 65 and lactate >= 4 and possible_sepsis:
-        st.error(
-            "Không tụt MAP nhưng lactate ≥ 4 mmol/L kèm nghi nhiễm khuẩn: xem như nhiễm khuẩn nặng/giảm tưới máu mô hoặc stress nặng. "
-            "Không chờ tụt huyết áp mới dùng kháng sinh nếu xác suất nhiễm khuẩn cao."
-        )
+    septic_shock = (
+    septic_active
+    and map_mmHg < 65
+)
+
+high_risk_sepsis = (
+    septic_active
+    and lactate >= 4
+    and map_mmHg >= 65
+)
+
+possible_sepsis_without_shock = (
+    septic_active
+    and not septic_shock
+    and not high_risk_sepsis
+)
+
+if septic_shock:
+    st.error(
+        "Septic shock: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. "
+        "Lấy cấy trước nếu không làm trì hoãn."
+    )
+
+elif high_risk_sepsis:
+    st.warning(
+        "Khả năng nhiễm khuẩn cao kèm lactate tăng/giảm tưới máu mô nhưng MAP hiện chưa thấp. "
+        "Không gọi là septic shock nếu MAP ≥ 65 mmHg, nhưng vẫn cần dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao. "
+        "Lấy cấy trước nếu không làm trì hoãn."
+    )
+
+elif possible_sepsis_without_shock:
+    st.info(
+        "Nghi sepsis nhưng chưa sốc: đánh giá nhanh khả năng nhiễm khuẩn, lấy cấy phù hợp "
+        "và dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao."
+    )
+
+else:
+    st.info(
+        "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu xác suất nhiễm khuẩn thấp."
+    )
     elif timing_level == "RED":
         st.error(timing_text)
     elif timing_level == "ORANGE":
