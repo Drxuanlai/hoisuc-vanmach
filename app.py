@@ -721,20 +721,28 @@ if enable_antibiotic_module:
     high_risk_infection_for_abx = possible_sepsis and (septic_shock_for_abx or lactate >= 4 or infection_with_organ_dysfunction)
 
     # Phân tầng timing kháng sinh rõ ràng hơn:
-    # - Septic shock: nghi nhiễm khuẩn + MAP < 65.
-    # - High-risk sepsis: nghi nhiễm khuẩn + lactate >= 4 nhưng MAP không thấp.
+    # - Septic shock: nghi nhiễm khuẩn + MAP < 65 HOẶC đang cần Noradrenaline để giữ MAP.
+    # - High-risk sepsis: nghi nhiễm khuẩn + lactate >= 4 nhưng chưa cần vận mạch/không tụt MAP.
     # Lactate cao một mình không tạo chỉ định vận mạch, nhưng vẫn là dấu hiệu nặng cần kháng sinh sớm nếu xác suất nhiễm khuẩn cao.
     st.subheader("8.1. Thời điểm dùng kháng sinh")
 
+    vasopressor_active_for_sepsis = (
+        drug_name == "Noradrenaline"
+        and desired_dose > 0
+    )
+
     septic_shock = (
         possible_sepsis
-        and map_mmHg < 65
+        and (
+            map_mmHg < 65
+            or vasopressor_active_for_sepsis
+        )
     )
 
     high_risk_sepsis = (
         possible_sepsis
         and lactate >= 4
-        and map_mmHg >= 65
+        and not septic_shock
     )
 
     possible_sepsis_without_shock = (
@@ -744,16 +752,23 @@ if enable_antibiotic_module:
     )
 
     if septic_shock:
-        timing_text = (
-            "Septic shock: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. "
-            "Lấy cấy trước nếu không làm trì hoãn."
-        )
+        if vasopressor_active_for_sepsis and map_mmHg >= 65:
+            timing_text = (
+                "Septic shock đang được kiểm soát huyết áp bằng vận mạch: MAP hiện đạt nhưng bệnh nhân vẫn cần Noradrenaline. "
+                "Dùng/duy trì kháng sinh phổ rộng đúng giờ, tối ưu PK/PD, lấy cấy nếu chưa có và đánh giá source control. "
+                "Không diễn giải MAP ≥65 như hết sốc khi vẫn còn lactate cao/thiểu niệu/giảm tưới máu."
+            )
+        else:
+            timing_text = (
+                "Septic shock: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. "
+                "Lấy cấy trước nếu không làm trì hoãn, tối ưu PK/PD và đánh giá source control."
+            )
         st.error(timing_text)
 
     elif high_risk_sepsis:
         timing_text = (
-            "Khả năng nhiễm khuẩn cao kèm lactate tăng/giảm tưới máu mô nhưng MAP hiện chưa thấp. "
-            "Không gọi là septic shock nếu MAP ≥ 65 mmHg, nhưng vẫn cần dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao. "
+            "Khả năng nhiễm khuẩn cao kèm lactate tăng/giảm tưới máu mô nhưng MAP hiện chưa thấp và chưa có vận mạch. "
+            "Không gọi là septic shock nếu MAP ≥65 mmHg và không cần vận mạch, nhưng vẫn cần dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao. "
             "Lấy cấy trước nếu không làm trì hoãn."
         )
         st.warning(timing_text)
@@ -1276,6 +1291,14 @@ else:
 
 summary_lines.append(f"- Fluid responsiveness: {fr_interpretation}")
 summary_lines.append(f"- Chiến lược dịch: {strategy_text}")
+
+if map_mmHg >= 65 and drug_name == "Noradrenaline" and desired_dose > 0 and lactate >= 4:
+    summary_lines.append(
+        "- Huyết động: MAP đã đạt nhờ vận mạch nhưng tưới máu mô còn xấu "
+        "(lactate cao/thiểu niệu/chi lạnh). Không tăng Noradrenaline chỉ vì chi lạnh nếu MAP đã đủ; "
+        "ưu tiên đánh giá VTI/CO, ScvO₂, CRT, fluid challenge nhỏ nếu còn đáp ứng dịch, "
+        "và tối ưu inotrope sau khi tiền tải đủ."
+    )
 
 if show_vasopressor_calculator and drug_name != "Không dùng vận mạch" and map_mmHg < 65:
     summary_lines.append(

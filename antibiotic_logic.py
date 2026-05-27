@@ -197,6 +197,12 @@ def recommend_antibiotic_coverage(
     warnings = []
     notes = [protocol["source_control"]]
 
+    if infection_focus == "Viêm phổi cộng đồng nặng":
+        suggestions.append(
+            "Nếu chọn respiratory fluoroquinolone hoặc macrolide để bao phủ atypical: kiểm tra ECG/QTc, K⁺, Mg²⁺, "
+            "bệnh tim nền, nhịp nhanh/rung nhĩ và thuốc vận mạch/inotrope vì nguy cơ kéo dài QT/loạn nhịp."
+        )
+
     if community_or_hospital in ["Bệnh viện", "ICU/VAP"]:
         coverage.append("Tác nhân bệnh viện và vi khuẩn kháng thuốc tùy antibiogram")
         suggestions.append("Ưu tiên phác đồ bệnh viện/ICU thay vì phác đồ cộng đồng thông thường")

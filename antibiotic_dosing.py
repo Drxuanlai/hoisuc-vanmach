@@ -236,17 +236,29 @@ def generate_antibiotic_clinical_alerts(
     )
 
     if antibiotic_name in ["Levofloxacin", "Ciprofloxacin"]:
-        if heart_rate > 120 or vasoactive_running:
+        has_tachy_or_af = heart_rate >= 110
+        has_vasoactive = vasoactive_running
+
+        if has_tachy_or_af and has_vasoactive:
             alerts.append((
                 "error",
-                "Cảnh giác nguy cơ kéo dài QT / xoắn đỉnh / loạn nhịp vì bệnh nhân đang có nhịp nhanh "
-                "và/hoặc đang dùng vận mạch/inotrope. Kiểm tra ECG, QTc, K⁺, Mg²⁺ và thuốc kéo dài QT khác.",
+                "CẢNH BÁO ĐỎ: Fluoroquinolone có nguy cơ kéo dài QT / xoắn đỉnh / loạn nhịp. "
+                "Bệnh nhân đang có nhịp nhanh/rung nhĩ và đang dùng vận mạch/inotrope "
+                "(ví dụ Noradrenaline/Dobutamine). Kiểm tra ECG/QTc, K⁺, Mg²⁺, thuốc kéo dài QT khác; "
+                "cân nhắc lựa chọn khác nếu phù hợp phác đồ và kháng sinh đồ."
+            ))
+        elif has_tachy_or_af or has_vasoactive:
+            alerts.append((
+                "warning",
+                "Fluoroquinolone có nguy cơ kéo dài QT / xoắn đỉnh / loạn nhịp. "
+                "Bệnh nhân có nhịp nhanh/rung nhĩ hoặc đang dùng vận mạch/inotrope. "
+                "Nên kiểm tra ECG/QTc, K⁺, Mg²⁺ và tương tác thuốc."
             ))
         else:
             alerts.append((
                 "warning",
-                "Fluoroquinolone có nguy cơ kéo dài QT, rối loạn đường huyết, tác dụng phụ thần kinh và bệnh lý gân. "
-                "Nên kiểm tra ECG/QTc nếu bệnh nhân có nguy cơ tim mạch.",
+                "Fluoroquinolone có nguy cơ kéo dài QT, rối loạn đường huyết, tác dụng phụ thần kinh "
+                "và bệnh lý gân. Thận trọng ở người già, CKD, bệnh tim nền."
             ))
 
     if antibiotic_name == "Vancomycin":
