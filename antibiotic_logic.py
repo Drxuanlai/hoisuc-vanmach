@@ -31,31 +31,21 @@ def assess_mdr_risk(
     return len(factors) > 0, factors
 
 
-def antibiotic_timing_advice(
-    septic_shock: bool,
-    high_risk_sepsis: bool,
-    possible_sepsis_without_shock: bool,
-) -> str:
+def antibiotic_timing_advice(septic_shock: bool, possible_sepsis: bool) -> tuple[str, str]:
+    """Gợi ý thời điểm kháng sinh."""
     if septic_shock:
         return (
-            "Septic shock: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. "
-            "Lấy cấy trước nếu không làm trì hoãn."
+            "RED",
+            "Septic shock hoặc khả năng nhiễm khuẩn cao kèm giảm tưới máu: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. Lấy cấy trước nếu không làm trì hoãn."
         )
-
-    if high_risk_sepsis:
+    if possible_sepsis:
         return (
-            "Khả năng nhiễm khuẩn cao kèm lactate tăng/giảm tưới máu mô: dùng kháng sinh phổ rộng sớm, "
-            "đặc biệt nếu bệnh cảnh nặng. Lấy cấy trước nếu không làm trì hoãn."
+            "ORANGE",
+            "Nghi sepsis chưa sốc: đánh giá nhanh khả năng nhiễm khuẩn, lấy cấy phù hợp và dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao."
         )
-
-    if possible_sepsis_without_shock:
-        return (
-            "Nghi sepsis nhưng chưa sốc: đánh giá nhanh khả năng nhiễm khuẩn, lấy cấy phù hợp "
-            "và dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao."
-        )
-
     return (
-        "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu xác suất nhiễm khuẩn thấp."
+        "BLUE",
+        "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu có chẩn đoán khác phù hợp."
     )
 
 

@@ -118,8 +118,6 @@ def fluid_strategy_for_mixed_shock(
     anaphylactic_level: str,
     fluid_overload_risk: bool,
     fluid_responsive: bool,
-    esrd_or_anuric: bool = False,
-    pulmonary_edema: bool = False,
     map_mmHg: float,
     lactate: float,
 ) -> tuple[str, str]:
@@ -131,13 +129,6 @@ def fluid_strategy_for_mixed_shock(
     anaphylactic_active = anaphylactic_level in ["Cao", "Trung bình"]
     severe_hypoperfusion = map_mmHg < 65 or lactate > 4
 
-    if esrd_or_anuric and pulmonary_edema and map_mmHg >= 65:
-    return (
-        "RED",
-        "ESRD/chạy thận hoặc vô niệu kèm phù phổi cấp và MAP hiện không thấp. "
-        "Không bolus dịch. Ưu tiên xử trí suy hô hấp, POCUS tim-phổi, cân nhắc lọc máu/siêu lọc cấp cứu, "
-        "kháng sinh sớm nếu nghi nhiễm khuẩn và tìm source control."
-    )
     if obstructive_active:
         return (
             "RED",
