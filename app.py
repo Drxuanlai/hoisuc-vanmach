@@ -673,7 +673,7 @@ if enable_antibiotic_module:
         possible_sepsis=possible_sepsis,
     )
 
-        st.subheader("8.1. Thời điểm dùng kháng sinh")
+    st.subheader("8.1. Thời điểm dùng kháng sinh")
 
     septic_shock = (
         possible_sepsis
