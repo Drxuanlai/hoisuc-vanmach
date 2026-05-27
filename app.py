@@ -673,49 +673,52 @@ if enable_antibiotic_module:
         possible_sepsis=possible_sepsis,
     )
 
-    st.subheader("8.1. Thời điểm dùng kháng sinh")
+        st.subheader("8.1. Thời điểm dùng kháng sinh")
 
     septic_shock = (
-    septic_active
-    and map_mmHg < 65
-)
-
-high_risk_sepsis = (
-    septic_active
-    and lactate >= 4
-    and map_mmHg >= 65
-)
-
-possible_sepsis_without_shock = (
-    septic_active
-    and not septic_shock
-    and not high_risk_sepsis
-)
-
-if septic_shock:
-    st.error(
-        "Septic shock: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. "
-        "Lấy cấy trước nếu không làm trì hoãn."
+        possible_sepsis
+        and map_mmHg < 65
     )
 
-elif high_risk_sepsis:
-    st.warning(
-        "Khả năng nhiễm khuẩn cao kèm lactate tăng/giảm tưới máu mô nhưng MAP hiện chưa thấp. "
-        "Không gọi là septic shock nếu MAP ≥ 65 mmHg, nhưng vẫn cần dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao. "
-        "Lấy cấy trước nếu không làm trì hoãn."
+    high_risk_sepsis = (
+        possible_sepsis
+        and lactate >= 4
+        and map_mmHg >= 65
     )
 
-elif possible_sepsis_without_shock:
-    st.info(
-        "Nghi sepsis nhưng chưa sốc: đánh giá nhanh khả năng nhiễm khuẩn, lấy cấy phù hợp "
-        "và dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao."
+    possible_sepsis_without_shock = (
+        possible_sepsis
+        and not septic_shock
+        and not high_risk_sepsis
     )
 
-else:
-    st.info(
-        "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu xác suất nhiễm khuẩn thấp."
-    )
+    if septic_shock:
+        timing_text = (
+            "Septic shock: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. "
+            "Lấy cấy trước nếu không làm trì hoãn."
+        )
+        st.error(timing_text)
 
+    elif high_risk_sepsis:
+        timing_text = (
+            "Khả năng nhiễm khuẩn cao kèm lactate tăng/giảm tưới máu mô nhưng MAP hiện chưa thấp. "
+            "Không gọi là septic shock nếu MAP ≥ 65 mmHg, nhưng vẫn cần dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao. "
+            "Lấy cấy trước nếu không làm trì hoãn."
+        )
+        st.warning(timing_text)
+
+    elif possible_sepsis_without_shock:
+        timing_text = (
+            "Nghi sepsis nhưng chưa sốc: đánh giá nhanh khả năng nhiễm khuẩn, lấy cấy phù hợp "
+            "và dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao."
+        )
+        st.info(timing_text)
+
+    else:
+        timing_text = (
+            "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu xác suất nhiễm khuẩn thấp."
+        )
+        st.info(timing_text)
     st.subheader("8.2. Ổ nhiễm nghi ngờ và bối cảnh mắc phải")
 
     col_abx_focus1, col_abx_focus2, col_abx_focus3 = st.columns(3)
