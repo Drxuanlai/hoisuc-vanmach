@@ -275,6 +275,17 @@ strategy_level, strategy_text = fluid_strategy_for_mixed_shock(
     lactate=lactate,
 )
 
+# Override an toàn cho ESRD/CKD nặng hoặc vô niệu kèm phù phổi cấp khi MAP không thấp.
+# Trong phenotype này, không nên chỉ nói "bolus nhỏ"; ưu tiên xử trí quá tải dịch/suy hô hấp và source control.
+if (anuric_ckd or ckd_any) and pulmonary_edema and map_mmHg >= 65:
+    strategy_level = "RED"
+    strategy_text = (
+        "CKD/ESRD hoặc vô niệu kèm phù phổi cấp và MAP hiện không thấp. "
+        "Không bolus dịch. Ưu tiên oxy/NIV nếu phù hợp, POCUS tim-phổi, "
+        "cân nhắc lọc máu/siêu lọc cấp cứu nếu quá tải dịch nặng, kháng sinh sớm nếu nghi nhiễm khuẩn "
+        "và tìm source control."
+    )
+
 if strategy_level == "RED":
     st.error(strategy_text)
 elif strategy_level == "ORANGE":
@@ -303,7 +314,7 @@ else:
 # Module 5: Vasopressor calculator - only when clinically indicated
 # ============================================================
 
-st.header("5. Vận mạch:")
+st.header("5. Vận mạch: chỉ bật khi có tụt huyết áp/sốc cần nâng MAP")
 
 # Mặc định: không đề xuất vận mạch nếu MAP đang cao/bình thường.
 # Lactate cao một mình KHÔNG phải chỉ định norepinephrine nếu MAP đã 195 mmHg.
@@ -427,7 +438,7 @@ if show_vasopressor_calculator:
 # Module 6: Inotrope decision support and calculator
 # ============================================================
 
-st.header("6. Inotrope:")
+st.header("6. Inotrope: chỉ bật khi có low-output phenotype phù hợp")
 
 # Dữ kiện sàng lọc, không tự động bắt dùng inotrope.
 ef_reduced = severe_hfrEF or cardiogenic_active
@@ -668,11 +679,10 @@ if enable_antibiotic_module:
     septic_shock_for_abx = possible_sepsis and map_mmHg < 65
     high_risk_infection_for_abx = possible_sepsis and (septic_shock_for_abx or lactate >= 4 or infection_with_organ_dysfunction)
 
-    timing_level, timing_text = antibiotic_timing_advice(
-        septic_shock=high_risk_infection_for_abx,
-        possible_sepsis=possible_sepsis,
-    )
-
+    # Phân tầng timing kháng sinh rõ ràng hơn:
+    # - Septic shock: nghi nhiễm khuẩn + MAP < 65.
+    # - High-risk sepsis: nghi nhiễm khuẩn + lactate >= 4 nhưng MAP không thấp.
+    # Lactate cao một mình không tạo chỉ định vận mạch, nhưng vẫn là dấu hiệu nặng cần kháng sinh sớm nếu xác suất nhiễm khuẩn cao.
     st.subheader("8.1. Thời điểm dùng kháng sinh")
 
     septic_shock = (
@@ -719,6 +729,7 @@ if enable_antibiotic_module:
             "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu xác suất nhiễm khuẩn thấp."
         )
         st.info(timing_text)
+
     st.subheader("8.2. Ổ nhiễm nghi ngờ và bối cảnh mắc phải")
 
     col_abx_focus1, col_abx_focus2, col_abx_focus3 = st.columns(3)
@@ -981,7 +992,8 @@ else:
 
 summary_lines.append(f"- Fluid responsiveness: {fr_interpretation}")
 summary_lines.append(f"- Chiến lược dịch: {strategy_text}")
-if map_mmHg < 65 and drug_name != "Không dùng vận mạch":
+
+if show_vasopressor_calculator and drug_name != "Không dùng vận mạch" and map_mmHg < 65:
     summary_lines.append(
         f"- Vận mạch: {drug_name}, pha {total_drug_mg:.1f} mg/{final_volume_ml:.0f} mL, "
         f"nồng độ {vasopressor_result['final_concentration_mcg_ml']:.1f} mcg/mL"
@@ -989,6 +1001,12 @@ if map_mmHg < 65 and drug_name != "Không dùng vận mạch":
     summary_lines.append(
         f"- Liều vận mạch: {desired_dose:.3f} mcg/kg/phút → "
         f"{vasopressor_result['pump_rate_ml_hour']:.2f} mL/giờ"
+    )
+elif show_vasopressor_calculator and drug_name != "Không dùng vận mạch":
+    summary_lines.append(
+        f"- Vận mạch: máy tính được mở thủ công; {drug_name}, pha {total_drug_mg:.1f} mg/{final_volume_ml:.0f} mL, "
+        f"liều {desired_dose:.3f} mcg/kg/phút → {vasopressor_result['pump_rate_ml_hour']:.2f} mL/giờ. "
+        "App không xem đây là chỉ định tự động vì MAP hiện không thấp."
     )
 else:
     summary_lines.append(
