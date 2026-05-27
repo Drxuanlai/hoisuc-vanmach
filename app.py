@@ -795,6 +795,7 @@ if enable_antibiotic_module:
             "Ổ nhiễm nghi ngờ",
             [
                 "Viêm phổi cộng đồng nặng",
+                "Viêm màng não mủ cộng đồng",
                 "Viêm phổi bệnh viện / ICU / VAP",
                 "Nhiễm khuẩn tiết niệu phức tạp / Pyelonephritis",
                 "Nhiễm khuẩn ổ bụng",
@@ -810,7 +811,7 @@ if enable_antibiotic_module:
         community_or_hospital = st.selectbox(
             "Bối cảnh nhiễm khuẩn",
             ["Cộng đồng", "Bệnh viện", "ICU/VAP"],
-            index=0 if infection_focus == "Viêm phổi cộng đồng nặng" else 1,
+            index=0 if infection_focus in ["Viêm phổi cộng đồng nặng", "Viêm màng não mủ cộng đồng"] else 1,
             key="abx_context",
         )
 
@@ -841,6 +842,9 @@ if enable_antibiotic_module:
         "Cấy máu 2 bộ",
         "Cấy nước tiểu",
         "Cấy đàm / hút đàm",
+        "Cấy DNT và kháng sinh đồ",
+        "Nhuộm Gram DNT",
+        "PCR/multiplex DNT nếu có",
         "Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi",
         "Cấy catheter nếu nghi liên quan",
         "Cấy mô/dịch mủ sâu nếu có",
@@ -852,6 +856,10 @@ if enable_antibiotic_module:
         suggested_cultures.append("Cấy nước tiểu")
     if infection_focus == "Viêm phổi cộng đồng nặng" and "Cấy đàm / hút đàm" not in suggested_cultures:
         suggested_cultures.append("Cấy đàm / hút đàm")
+    if infection_focus == "Viêm màng não mủ cộng đồng":
+        for cns_culture in ["Cấy máu 2 bộ", "Cấy DNT và kháng sinh đồ", "Nhuộm Gram DNT", "PCR/multiplex DNT nếu có"]:
+            if cns_culture not in suggested_cultures:
+                suggested_cultures.append(cns_culture)
     if infection_focus == "Nhiễm khuẩn ổ bụng" and "Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi" not in suggested_cultures:
         suggested_cultures.append("Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi")
     if infection_focus == "Nhiễm khuẩn huyết liên quan catheter" and "Cấy catheter nếu nghi liên quan" not in suggested_cultures:
@@ -893,6 +901,11 @@ if enable_antibiotic_module:
     if source_control_needed:
         st.error("Cần đánh giá source control song song, vì kháng sinh đơn độc có thể không đủ nếu còn ổ nhiễm cần dẫn lưu/can thiệp.")
 
+    if infection_focus == "Viêm màng não mủ cộng đồng":
+        st.error(
+            "Viêm màng não mủ là cấp cứu thần kinh-nhiễm khuẩn: kháng sinh ngay, dexamethasone trước/cùng liều đầu nếu nghi phế cầu, ICU nếu GCS giảm/tăng áp lực nội sọ/co giật. Cách ly giọt bắn nếu nghi não mô cầu."
+        )
+
     st.subheader("8.4. Nguy cơ vi khuẩn đa kháng và yếu tố cần mở rộng phổ")
 
     col_mdr1, col_mdr2, col_mdr3 = st.columns(3)
@@ -911,6 +924,11 @@ if enable_antibiotic_module:
         invasive_device = st.checkbox("Catheter/sonde/dụng cụ xâm lấn lâu ngày", value=False, key="abx_invasive_device")
         beta_lactam_allergy = st.checkbox("Dị ứng beta-lactam nặng", value=False, key="abx_beta_allergy")
         prior_colonization_unknown = st.checkbox("Chưa rõ tiền sử vi sinh / thiếu dữ liệu", value=True, key="abx_unknown_micro")
+        alcohol_liver_listeria_risk = st.checkbox(
+            "Nghiện rượu/bệnh gan/xơ gan hoặc nguy cơ Listeria",
+            value=False,
+            key="abx_alcohol_liver_listeria",
+        )
 
     mdr_risk, mdr_factors = assess_mdr_risk(
         recent_hospitalization=recent_hospitalization,
@@ -935,12 +953,21 @@ if enable_antibiotic_module:
         prior_colonization_unknown=prior_colonization_unknown,
     )
 
+    listeria_risk = (
+        infection_focus == "Viêm màng não mủ cộng đồng"
+        and (age_years >= 50 or alcohol_liver_listeria_risk or immunosuppression)
+    )
+
     st.write("**App tự suy luận nguy cơ mở rộng phổ từ checklist:**")
-    auto_cols = st.columns(4)
+    auto_cols = st.columns(5)
     auto_cols[0].metric("MRSA", "Có" if inferred_risks["mrsa_risk"] else "Không rõ")
     auto_cols[1].metric("Pseudomonas", "Có" if inferred_risks["pseudomonas_risk"] else "Không rõ")
     auto_cols[2].metric("ESBL", "Có" if inferred_risks["esbl_risk"] else "Không rõ")
     auto_cols[3].metric("Candida", "Có" if inferred_risks["candida_risk"] else "Không rõ")
+    auto_cols[4].metric("Listeria", "Có" if listeria_risk else "Không rõ")
+
+    if listeria_risk:
+        st.warning("Nguy cơ Listeria trong viêm màng não: tuổi ≥50, nghiện rượu/bệnh gan hoặc suy giảm miễn dịch → cần bao phủ bằng Ampicillin theo phác đồ nếu không chống chỉ định.")
 
     with st.expander("Xem lý do app suy luận nguy cơ"):
         for risk_name, reason_list in inferred_risks["reasons"].items():
@@ -1002,6 +1029,11 @@ if enable_antibiotic_module:
     for item in antibiotic_recommendation["suggestions"]:
         st.write(f"- {item}")
 
+    if infection_focus == "Viêm màng não mủ cộng đồng":
+        st.error(
+            "Phác đồ kinh nghiệm thường cần: Ceftriaxone/Cefotaxime liều viêm màng não + Vancomycin + Ampicillin nếu nguy cơ Listeria. Dexamethasone trước/cùng liều đầu nếu nghi phế cầu và không chống chỉ định."
+        )
+
     if antibiotic_recommendation["warnings"]:
         for warning in antibiotic_recommendation["warnings"]:
             st.warning(warning)
@@ -1024,6 +1056,12 @@ if enable_antibiotic_module:
         crcl=egfr,
         on_hemodialysis=on_hemodialysis_for_dosing,
     )
+
+    if infection_focus == "Viêm màng não mủ cộng đồng" and selected_antibiotic == "Ceftriaxone":
+        dose_rec["dose_text"] = "VIÊM MÀNG NÃO: Ceftriaxone 2 g IV mỗi 12 giờ; thường không cần chỉnh liều theo thận"
+
+    if infection_focus == "Viêm màng não mủ cộng đồng" and selected_antibiotic == "Ampicillin" and listeria_risk:
+        st.error("Ampicillin đang được chọn để bao phủ Listeria. Đảm bảo liều CNS/meningitis và chỉnh theo thận nhưng tránh giảm liều quá mức khi nhiễm CNS nặng.")
 
     col_dose1, col_dose2, col_dose3 = st.columns(3)
     with col_dose1:

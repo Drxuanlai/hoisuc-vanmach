@@ -147,7 +147,14 @@ def suggest_likely_pathogens(
     focus_lower = infection_focus.lower()
     pathogens = []
 
-    if "tiết niệu" in focus_lower:
+    if "màng não" in focus_lower or "thần kinh trung ương" in focus_lower:
+        pathogens.extend([
+            "Streptococcus pneumoniae",
+            "Neisseria meningitidis",
+            "Listeria monocytogenes nếu tuổi cao/nghiện rượu/bệnh gan/suy giảm miễn dịch",
+            "H. influenzae ít gặp hơn tùy vaccine và cơ địa",
+        ])
+    elif "tiết niệu" in focus_lower:
         pathogens.extend(["E. coli", "Klebsiella/Enterobacterales", "Proteus spp."])
         if community_or_hospital in ["Bệnh viện", "ICU/VAP"]:
             pathogens.append("Enterococcus trong một số bối cảnh")
@@ -196,6 +203,18 @@ def recommend_antibiotic_coverage(
     suggestions = list(protocol["base_suggestion"])
     warnings = []
     notes = [protocol["source_control"]]
+
+    if infection_focus == "Viêm màng não mủ cộng đồng":
+        warnings.append(
+            "Viêm màng não mủ là cấp cứu: dùng kháng sinh ngay sau khi lấy cấy/DNT nếu không làm trì hoãn; không chờ kết quả cấy."
+        )
+        warnings.append(
+            "Nếu nghi phế cầu: cân nhắc dexamethasone trước hoặc cùng liều kháng sinh đầu theo phác đồ và chống chỉ định."
+        )
+        if beta_lactam_allergy:
+            warnings.append(
+                "Dị ứng beta-lactam nặng trong viêm màng não: cần hội chẩn nhiễm/dược lâm sàng ngay vì phác đồ thay thế phức tạp."
+            )
 
     if infection_focus == "Viêm phổi cộng đồng nặng":
         suggestions.append(

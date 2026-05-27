@@ -103,6 +103,32 @@ ANTIBIOTIC_PROTOCOLS = {
         "cultures": ["Cấy máu 2 bộ ngoại biên", "Cấy máu qua catheter nếu có thể", "Cấy đầu catheter khi rút"],
         "source_control": "Cân nhắc rút/thay catheter nghi nhiễm, đặc biệt khi sốc, S. aureus, Candida hoặc nhiễm dai dẳng."
     },
+
+    "Viêm màng não mủ cộng đồng": {
+        "base_coverage": [
+            "Streptococcus pneumoniae, bao gồm chủng giảm nhạy beta-lactam tùy dịch tễ",
+            "Neisseria meningitidis",
+            "Listeria monocytogenes nếu tuổi cao, nghiện rượu, bệnh gan hoặc suy giảm miễn dịch",
+        ],
+        "base_suggestion": [
+            "Ceftriaxone 2 g IV mỗi 12 giờ hoặc cefotaxime liều viêm màng não theo phác đồ",
+            "Thêm Vancomycin IV, chỉnh theo AUC/TDM, khi nghi phế cầu kháng thuốc hoặc bệnh cảnh rất nặng",
+            "Thêm Ampicillin 2 g IV mỗi 4 giờ nếu nguy cơ Listeria: tuổi ≥50, nghiện rượu, bệnh gan/xơ gan, thai kỳ hoặc suy giảm miễn dịch",
+            "Dexamethasone 10 mg IV mỗi 6 giờ trong 4 ngày, dùng trước hoặc cùng liều kháng sinh đầu nếu nghi phế cầu và không chống chỉ định",
+        ],
+        "mdr_addon": [
+            "Nếu có can thiệp thần kinh, shunt, chấn thương sọ não hoặc nhiễm bệnh viện: không dùng protocol cộng đồng; cần phác đồ viêm màng não bệnh viện/ICU",
+            "Nếu dị ứng beta-lactam nặng: cần hội chẩn nhiễm/dược lâm sàng ngay vì lựa chọn thay thế phức tạp",
+        ],
+        "cultures": [
+            "Cấy máu 2 bộ",
+            "Cấy DNT và kháng sinh đồ",
+            "Nhuộm Gram DNT",
+            "PCR/multiplex DNT nếu có",
+            "Định lượng glucose/protein/tế bào DNT và glucose máu cùng thời điểm",
+        ],
+        "source_control": "Không trì hoãn kháng sinh. ICU nếu rối loạn tri giác/tăng áp lực nội sọ/co giật. Cách ly giọt bắn và thông báo kiểm soát nhiễm khuẩn/y tế dự phòng nếu nghi não mô cầu."
+    },
     "Chưa rõ ổ nhiễm": {
         "base_coverage": [
             "Cần bao phủ rộng theo bối cảnh cộng đồng/bệnh viện và mức độ sốc",

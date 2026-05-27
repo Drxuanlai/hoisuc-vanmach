@@ -144,15 +144,28 @@ ANTIBIOTIC_DICT = {
         ],
     },
     "Ceftriaxone": {
-        "crcl_gt_50": "2 g IV mỗi 24 giờ cho nhiễm nặng/sepsis; 2 g IV mỗi 12 giờ nếu viêm màng não theo phác đồ",
-        "crcl_30_50": "2 g IV mỗi 24 giờ; thường không cần chỉnh liều theo thận",
-        "crcl_10_29": "2 g IV mỗi 24 giờ; thường không cần chỉnh liều theo thận",
-        "crcl_lt_10": "2 g IV mỗi 24 giờ; thường không cần chỉnh liều theo thận hoặc lọc máu",
+        "crcl_gt_50": "2 g IV mỗi 24 giờ cho nhiễm nặng/sepsis; VIÊM MÀNG NÃO: 2 g IV mỗi 12 giờ",
+        "crcl_30_50": "2 g IV mỗi 24 giờ; VIÊM MÀNG NÃO: 2 g IV mỗi 12 giờ; thường không cần chỉnh liều theo thận",
+        "crcl_10_29": "2 g IV mỗi 24 giờ; VIÊM MÀNG NÃO: 2 g IV mỗi 12 giờ; thường không cần chỉnh liều theo thận",
+        "crcl_lt_10": "2 g IV mỗi 24 giờ; VIÊM MÀNG NÃO: 2 g IV mỗi 12 giờ; thường không cần chỉnh liều theo thận/lọc máu",
         "warnings": [
             "Thường không cần chỉnh liều theo thận đơn thuần; thận trọng nếu suy gan nặng kèm suy thận nặng.",
-            "Không bao phủ Pseudomonas, Acinetobacter, Enterococcus, MRSA.",
+            "Trong viêm màng não mủ, phải dùng liều CNS/meningitis 2 g IV mỗi 12 giờ, không dùng liều q24h thường quy.",
+            "Không bao phủ Listeria, Pseudomonas, Acinetobacter, Enterococcus, MRSA.",
             "Nguy cơ bùn mật/ứ mật, đặc biệt khi dùng liều cao hoặc kéo dài.",
             "Luôn kiểm tra tương hợp đường truyền với calcium theo chính sách bệnh viện.",
+        ],
+    },
+    "Ampicillin": {
+        "crcl_gt_50": "2 g IV mỗi 4 giờ cho viêm màng não/Listeria; nhiễm khác chỉnh theo ổ nhiễm",
+        "crcl_30_50": "2 g IV mỗi 6 giờ; viêm màng não nặng cần hội chẩn dược lâm sàng để tối ưu liều",
+        "crcl_10_29": "2 g IV mỗi 8–12 giờ; viêm màng não nặng cần cá thể hóa theo CrCl và đáp ứng",
+        "crcl_lt_10": "2 g IV mỗi 12–24 giờ; nếu lọc máu dùng sau phiên lọc theo phác đồ bệnh viện",
+        "warnings": [
+            "Ampicillin là thuốc chính để bao phủ Listeria monocytogenes trong viêm màng não cộng đồng có yếu tố nguy cơ.",
+            "Cần chỉnh liều theo thận; trong viêm màng não, tránh giảm liều quá mức gây thiếu nồng độ DNT.",
+            "Theo dõi dị ứng beta-lactam, phát ban, tiêu chảy/C. difficile và tải natri ở bệnh nhân suy tim/CKD.",
+            "Nếu dị ứng penicillin nặng và nghi Listeria: cần hội chẩn nhiễm/dược lâm sàng vì lựa chọn thay thế không đơn giản.",
         ],
     },
     "Colistin": {
