@@ -25,6 +25,13 @@ from antibiotic_logic import (
     suggest_likely_pathogens,
 )
 from antibiotic_presets_local import ANTIBIOTIC_PROTOCOLS
+from antibiotic_dosing import (
+    ANTIBIOTIC_DOSING,
+    calculate_crcl,
+    choose_weight_for_cg,
+    generate_antibiotic_clinical_alerts,
+    get_antibiotic_dose_recommendation,
+)
 
 # ============================================================
 # Shock Resuscitation Mini-App By DR.XuanLai
@@ -52,6 +59,30 @@ st.warning(
 st.sidebar.header("Thông tin bệnh nhân")
 
 weight_kg = st.sidebar.number_input("Cân nặng (kg)", min_value=1.0, max_value=300.0, value=60.0, step=1.0)
+age_years = st.sidebar.number_input("Tuổi (năm)", min_value=0.0, max_value=120.0, value=68.0, step=1.0)
+sex = st.sidebar.selectbox("Giới tính", ["Nam", "Nữ"], index=0)
+is_male = sex == "Nam"
+height_cm = st.sidebar.number_input("Chiều cao (cm)", min_value=50.0, max_value=230.0, value=165.0, step=1.0)
+serum_creatinine = st.sidebar.number_input("Creatinine máu (mg/dL)", min_value=0.1, max_value=20.0, value=1.5, step=0.1)
+
+cg_weight, cg_weight_method, bmi, ibw = choose_weight_for_cg(
+    weight_kg=weight_kg,
+    height_cm=height_cm,
+    is_male=is_male,
+)
+calculated_crcl = calculate_crcl(
+    age=age_years,
+    weight=cg_weight,
+    is_male=is_male,
+    serum_creatinine=serum_creatinine,
+)
+st.sidebar.info(
+    f"CrCl Cockcroft-Gault: {calculated_crcl:.1f} mL/phút\n\n"
+    f"BMI: {bmi:.1f} kg/m²\n\n"
+    f"IBW: {ibw:.1f} kg\n\n"
+    f"Cân nặng dùng tính CrCl: {cg_weight:.1f} kg ({cg_weight_method})"
+)
+
 map_mmHg = st.sidebar.number_input("MAP hiện tại (mmHg)", min_value=0.0, max_value=200.0, value=50.0, step=1.0)
 lactate = st.sidebar.number_input("Lactate (mmol/L)", min_value=0.0, max_value=30.0, value=7.5, step=0.1)
 urine_output_ml_kg_h = st.sidebar.number_input("Nước tiểu (mL/kg/giờ)", min_value=0.0, max_value=10.0, value=0.3, step=0.1)
@@ -760,13 +791,24 @@ if enable_antibiotic_module:
 
     with col_abx_focus3:
         egfr = st.number_input(
-            "eGFR/CrCl ước tính (mL/phút)",
+            "CrCl Cockcroft-Gault dùng chỉnh liều (mL/phút)",
             min_value=0.0,
             max_value=200.0,
-            value=45.0 if ckd_any else 80.0,
+            value=float(round(calculated_crcl, 1)),
             step=1.0,
             key="abx_egfr",
         )
+        on_hemodialysis_for_dosing = st.checkbox(
+            "Đang lọc máu chu kỳ / chỉnh liều theo lịch lọc máu",
+            value=anuric_ckd,
+            key="abx_on_hemodialysis_for_dosing",
+        )
+
+    st.caption(
+        f"CrCl tự tính theo Cockcroft-Gault từ tuổi, giới, cân nặng và creatinine. "
+        f"Cân nặng dùng tính: {cg_weight:.1f} kg ({cg_weight_method}). "
+        "Có thể chỉnh tay nếu ESRD/lọc máu, phù nhiều, cụt chi, AKI hoặc creatinine không ổn định."
+    )
 
     current_protocol = ANTIBIOTIC_PROTOCOLS.get(infection_focus, ANTIBIOTIC_PROTOCOLS["Chưa rõ ổ nhiễm"])
 
@@ -943,7 +985,60 @@ if enable_antibiotic_module:
     for note in antibiotic_recommendation["notes"]:
         st.write(f"- {note}")
 
-    st.subheader("8.6. Stewardship và review sau 24–48–72 giờ")
+    st.subheader("8.6. Chọn kháng sinh cụ thể để xem liều và cảnh báo")
+
+    selected_antibiotic = st.selectbox(
+        "Chọn kháng sinh cụ thể để xem liều và cảnh báo",
+        list(ANTIBIOTIC_DOSING.keys()),
+        index=0,
+        key="abx_specific_drug",
+    )
+
+    dose_rec = get_antibiotic_dose_recommendation(
+        antibiotic_name=selected_antibiotic,
+        crcl=egfr,
+        on_hemodialysis=on_hemodialysis_for_dosing,
+    )
+
+    col_dose1, col_dose2, col_dose3 = st.columns(3)
+    with col_dose1:
+        st.metric("Kháng sinh", dose_rec["antibiotic"])
+    with col_dose2:
+        st.metric("Nhóm chức năng thận", dose_rec["renal_label"])
+    with col_dose3:
+        st.metric("CrCl dùng tính liều", f"{egfr:.1f} mL/phút")
+
+    st.info(f"**Liều gợi ý tham khảo:** {dose_rec['dose_text']}")
+
+    st.write("**Cảnh báo nền của thuốc:**")
+    for warning in dose_rec["warnings"]:
+        st.warning(warning)
+
+    clinical_alerts = generate_antibiotic_clinical_alerts(
+        antibiotic_name=selected_antibiotic,
+        heart_rate=heart_rate,
+        drug_name=drug_name,
+        inotrope_name=inotrope_name,
+        desired_dose=desired_dose,
+        inotrope_dose=inotrope_dose,
+        crcl=egfr,
+        on_hemodialysis=on_hemodialysis_for_dosing,
+        ckd_any=ckd_any,
+        anuric_ckd=anuric_ckd,
+        pulmonary_edema=pulmonary_edema,
+    )
+
+    if clinical_alerts:
+        st.write("**Cảnh báo cá thể hóa theo dữ kiện trong app:**")
+        for severity, message in clinical_alerts:
+            if severity == "error":
+                st.error(message)
+            elif severity == "warning":
+                st.warning(message)
+            else:
+                st.info(message)
+
+    st.subheader("8.7. Stewardship và review sau 24–48–72 giờ")
     st.write("- Đánh giá lại chẩn đoán nhiễm khuẩn khi có diễn tiến lâm sàng, hình ảnh học và kết quả cấy.")
     st.write("- Xuống thang kháng sinh khi có kháng sinh đồ hoặc khi xác suất MDR thấp.")
     st.write("- Ngưng kháng sinh nếu xác suất nhiễm khuẩn thấp và có chẩn đoán thay thế phù hợp.")
@@ -955,6 +1050,10 @@ if enable_antibiotic_module:
     antibiotic_summary_lines.append("- Tác nhân cần nghĩ: " + "; ".join(likely_pathogens[:6]))
     antibiotic_summary_lines.append("- Coverage chính: " + "; ".join(antibiotic_recommendation["coverage"][:5]))
     antibiotic_summary_lines.append("- Gợi ý nhóm: " + "; ".join(antibiotic_recommendation["suggestions"][:4]))
+    antibiotic_summary_lines.append(
+        f"- Kháng sinh cụ thể: {selected_antibiotic}; CrCl {egfr:.1f} mL/phút; "
+        f"liều tham khảo: {dose_rec['dose_text']}"
+    )
 
 else:
     st.info("Module kháng sinh đang tắt. Có thể bật khi nghi nhiễm khuẩn/sepsis hoặc cần checklist cấy bệnh phẩm.")
