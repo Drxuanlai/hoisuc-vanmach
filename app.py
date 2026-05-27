@@ -303,7 +303,7 @@ else:
 # Module 5: Vasopressor calculator - only when clinically indicated
 # ============================================================
 
-st.header("5. Vận mạch: chỉ bật khi có tụt huyết áp/sốc cần nâng MAP")
+st.header("5. Vận mạch:")
 
 # Mặc định: không đề xuất vận mạch nếu MAP đang cao/bình thường.
 # Lactate cao một mình KHÔNG phải chỉ định norepinephrine nếu MAP đã 195 mmHg.
@@ -427,7 +427,7 @@ if show_vasopressor_calculator:
 # Module 6: Inotrope decision support and calculator
 # ============================================================
 
-st.header("6. Inotrope: chỉ bật khi có low-output phenotype phù hợp")
+st.header("6. Inotrope:")
 
 # Dữ kiện sàng lọc, không tự động bắt dùng inotrope.
 ef_reduced = severe_hfrEF or cardiogenic_active
