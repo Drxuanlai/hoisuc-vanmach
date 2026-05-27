@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 
 # ============================================================
 # Shock Resuscitation Mini-App By DR.XuanLai
@@ -13,7 +13,8 @@
 # 7. Vasopressor dose suggestion + dilution presets + pump-rate calculator
 # 8. Inotrope decision support + dose suggestion + pump-rate calculator
 # 9. High-dose vasoactive warning
-# 10. Final clinical summary
+# 10. Empiric antibiotic assistant
+# 11. Final clinical summary
 #
 # DISCLAIMER:
 # Đây là công cụ hỗ trợ quyết định, không thay thế đánh giá lâm sàng.
@@ -402,8 +403,245 @@ def suggest_inotrope(
     return recommendation
 
 
+
 # ============================================================
-# 5. Streamlit app
+# 5. Empiric antibiotic decision support logic
+# ============================================================
+
+ANTIBIOTIC_PROTOCOLS = {
+    "Viêm phổi cộng đồng nặng": {
+        "base_coverage": [
+            "Phế cầu và tác nhân hô hấp cộng đồng thường gặp",
+            "Gram âm hô hấp thường gặp",
+            "Tác nhân không điển hình",
+        ],
+        "base_suggestion": [
+            "Beta-lactam theo phác đồ bệnh viện + macrolide",
+            "Hoặc beta-lactam + respiratory fluoroquinolone nếu phù hợp",
+        ],
+        "mdr_addon": [
+            "Nếu nguy cơ Pseudomonas: chọn beta-lactam có phổ kháng Pseudomonas theo phác đồ bệnh viện",
+            "Nếu nguy cơ MRSA: thêm thuốc anti-MRSA theo phác đồ bệnh viện",
+            "Nếu nguy cơ ESBL cao và sốc: cân nhắc carbapenem theo phác đồ bệnh viện",
+        ],
+        "cultures": ["Cấy máu 2 bộ", "Cấy đàm hoặc hút đàm nếu đặt nội khí quản", "X-quang/CT ngực nếu ổn định"],
+        "source_control": "Tìm biến chứng cần dẫn lưu/kiểm soát nguồn: mủ màng phổi, áp xe phổi, ổ nhiễm ngoài phổi."
+    },
+    "Viêm phổi bệnh viện / ICU / VAP": {
+        "base_coverage": [
+            "Gram âm bệnh viện",
+            "Pseudomonas nếu có nguy cơ hoặc ICU có tỷ lệ cao",
+            "MRSA nếu có nguy cơ hoặc dịch tễ khoa phù hợp",
+        ],
+        "base_suggestion": [
+            "Anti-pseudomonal beta-lactam theo phác đồ HAP/VAP của bệnh viện",
+            "Thêm anti-MRSA khi có nguy cơ MRSA hoặc tỷ lệ MRSA tại khoa cao",
+        ],
+        "mdr_addon": [
+            "Cân nhắc phối hợp hai thuốc kháng Pseudomonas nếu sốc và nguy cơ kháng thuốc cao theo antibiogram",
+            "Cân nhắc Acinetobacter/CRE nếu có tiền sử cấy hoặc dịch tễ ICU",
+        ],
+        "cultures": ["Cấy máu 2 bộ", "Cấy hút nội khí quản/BAL nếu có", "Đánh giá catheter/ổ nhiễm khác"],
+        "source_control": "Đánh giá VAP, catheter, dịch màng phổi, áp xe và các ổ nhiễm bệnh viện khác."
+    },
+    "Nhiễm khuẩn tiết niệu phức tạp / Pyelonephritis": {
+        "base_coverage": [
+            "Enterobacterales",
+            "Gram âm niệu thường gặp",
+        ],
+        "base_suggestion": [
+            "Cephalosporin thế hệ 3 hoặc beta-lactam/beta-lactamase inhibitor theo phác đồ bệnh viện",
+        ],
+        "mdr_addon": [
+            "Nếu nguy cơ ESBL/MDR hoặc sốc: cân nhắc carbapenem theo phác đồ bệnh viện",
+            "Nếu nghi Pseudomonas: chọn thuốc có phổ Pseudomonas theo phác đồ",
+        ],
+        "cultures": ["Cấy máu 2 bộ", "Cấy nước tiểu trước kháng sinh nếu không trì hoãn", "Siêu âm/CT nếu nghi tắc nghẽn"],
+        "source_control": "Loại trừ tắc nghẽn đường niệu, áp xe thận/quanh thận, sonde nhiễm khuẩn cần thay/rút."
+    },
+    "Nhiễm khuẩn ổ bụng": {
+        "base_coverage": [
+            "Gram âm đường ruột",
+            "Kỵ khí",
+            "Enterococcus trong một số bối cảnh bệnh viện/ICU",
+        ],
+        "base_suggestion": [
+            "Beta-lactam/beta-lactamase inhibitor theo phác đồ bệnh viện",
+            "Hoặc cephalosporin + metronidazole nếu phù hợp phác đồ địa phương",
+        ],
+        "mdr_addon": [
+            "Nếu nguy cơ ESBL/MDR hoặc sốc: cân nhắc carbapenem theo phác đồ bệnh viện",
+            "Nếu nhiễm bệnh viện/ổ bụng phức tạp: cân nhắc Enterococcus và nấm theo nguy cơ",
+        ],
+        "cultures": ["Cấy máu 2 bộ", "Cấy dịch ổ bụng nếu dẫn lưu/phẫu thuật", "CT bụng khi ổn định"],
+        "source_control": "Source control là trọng tâm: dẫn lưu ổ mủ, phẫu thuật, xử trí thủng/tắc, ERCP nếu nhiễm trùng đường mật."
+    },
+    "Da - mô mềm nặng": {
+        "base_coverage": [
+            "Streptococcus",
+            "Staphylococcus aureus",
+            "Gram âm/kỵ khí nếu hoại tử, đái tháo đường hoặc nhiễm vùng tầng sinh môn",
+        ],
+        "base_suggestion": [
+            "Phác đồ bệnh viện cho nhiễm da mô mềm nặng",
+            "Thêm anti-MRSA nếu có nguy cơ hoặc bệnh cảnh nặng",
+        ],
+        "mdr_addon": [
+            "Nếu nghi viêm cân mạc hoại tử: cần phẫu thuật khẩn, phối hợp kháng sinh rộng theo phác đồ",
+            "Cân nhắc độc tố liên cầu/tụ cầu theo bệnh cảnh",
+        ],
+        "cultures": ["Cấy máu 2 bộ", "Cấy mô/dịch mủ sâu nếu có", "Không trì hoãn phẫu thuật nếu nghi hoại tử"],
+        "source_control": "Rạch dẫn lưu, cắt lọc mô hoại tử, hội chẩn ngoại khoa sớm."
+    },
+    "Nhiễm khuẩn huyết liên quan catheter": {
+        "base_coverage": [
+            "Staphylococcus aureus/coagulase-negative staphylococci",
+            "Gram âm bệnh viện tùy bối cảnh",
+            "Candida nếu nguy cơ cao",
+        ],
+        "base_suggestion": [
+            "Anti-MRSA + bao phủ Gram âm theo phác đồ bệnh viện nếu sốc",
+            "Cân nhắc kháng nấm nếu nguy cơ Candida cao",
+        ],
+        "mdr_addon": [
+            "Mở rộng phổ theo tiền sử cấy MDR và antibiogram khoa",
+        ],
+        "cultures": ["Cấy máu 2 bộ ngoại biên", "Cấy máu qua catheter nếu có thể", "Cấy đầu catheter khi rút"],
+        "source_control": "Cân nhắc rút/thay catheter nghi nhiễm, đặc biệt khi sốc, S. aureus, Candida hoặc nhiễm dai dẳng."
+    },
+    "Chưa rõ ổ nhiễm": {
+        "base_coverage": [
+            "Cần bao phủ rộng theo bối cảnh cộng đồng/bệnh viện và mức độ sốc",
+            "Tìm ổ nhiễm song song: phổi, niệu, bụng, da-mô mềm, catheter, thần kinh trung ương",
+        ],
+        "base_suggestion": [
+            "Dùng phác đồ sepsis/septic shock chưa rõ ổ của bệnh viện",
+            "Ưu tiên coverage đủ rộng ban đầu nếu sốc, sau đó xuống thang khi có dữ kiện",
+        ],
+        "mdr_addon": [
+            "Mở rộng phổ nếu có nguy cơ MDR/MRSA/Pseudomonas/ESBL hoặc nhiễm bệnh viện",
+        ],
+        "cultures": ["Cấy máu 2 bộ", "Cấy nước tiểu", "Cấy đàm nếu triệu chứng hô hấp", "Cấy dịch/mủ/catheter theo lâm sàng"],
+        "source_control": "Tìm ổ cần can thiệp bằng khám lại, POCUS, X-quang/CT và hội chẩn chuyên khoa."
+    },
+}
+
+
+def assess_mdr_risk(
+    recent_hospitalization: bool,
+    recent_antibiotics: bool,
+    prior_mdr: bool,
+    nursing_home: bool,
+    hemodialysis: bool,
+    immunosuppression: bool,
+    invasive_device: bool,
+) -> tuple[bool, list]:
+    """Đánh giá nguy cơ vi khuẩn đa kháng theo checklist thực hành."""
+    factors = []
+    if recent_hospitalization:
+        factors.append("Nhập viện trong 90 ngày")
+    if recent_antibiotics:
+        factors.append("Dùng kháng sinh trong 90 ngày")
+    if prior_mdr:
+        factors.append("Tiền sử cấy MDR/ESBL/MRSA/CRE")
+    if nursing_home:
+        factors.append("Chăm sóc dài hạn/viện dưỡng lão")
+    if hemodialysis:
+        factors.append("Lọc máu chu kỳ")
+    if immunosuppression:
+        factors.append("Suy giảm miễn dịch")
+    if invasive_device:
+        factors.append("Dụng cụ xâm lấn/catheter/sonde lâu ngày")
+    return len(factors) > 0, factors
+
+
+def antibiotic_timing_advice(septic_shock: bool, possible_sepsis: bool) -> tuple[str, str]:
+    """Gợi ý thời điểm kháng sinh."""
+    if septic_shock:
+        return (
+            "RED",
+            "Septic shock hoặc khả năng nhiễm khuẩn cao kèm giảm tưới máu: dùng kháng sinh phổ rộng càng sớm càng tốt, lý tưởng trong 1 giờ. Lấy cấy trước nếu không làm trì hoãn."
+        )
+    if possible_sepsis:
+        return (
+            "ORANGE",
+            "Nghi sepsis chưa sốc: đánh giá nhanh khả năng nhiễm khuẩn, lấy cấy phù hợp và dùng kháng sinh sớm nếu xác suất nhiễm khuẩn cao."
+        )
+    return (
+        "BLUE",
+        "Chưa đủ dữ kiện nhiễm khuẩn rõ. Tiếp tục đánh giá và tránh lạm dụng kháng sinh nếu có chẩn đoán khác phù hợp."
+    )
+
+
+def recommend_antibiotic_coverage(
+    infection_focus: str,
+    community_or_hospital: str,
+    mdr_risk: bool,
+    mrsa_risk: bool,
+    pseudomonas_risk: bool,
+    esbl_risk: bool,
+    candida_risk: bool,
+    beta_lactam_allergy: bool,
+    egfr: float,
+) -> dict:
+    """
+    Gợi ý coverage và nhóm kháng sinh.
+    Không tạo y lệnh cố định, vì phải phụ thuộc phác đồ bệnh viện và antibiogram.
+    """
+    protocol = ANTIBIOTIC_PROTOCOLS.get(infection_focus, ANTIBIOTIC_PROTOCOLS["Chưa rõ ổ nhiễm"])
+    coverage = list(protocol["base_coverage"])
+    suggestions = list(protocol["base_suggestion"])
+    warnings = []
+    notes = [protocol["source_control"]]
+
+    if community_or_hospital in ["Bệnh viện", "ICU/VAP"]:
+        coverage.append("Tác nhân bệnh viện và vi khuẩn kháng thuốc tùy antibiogram")
+        suggestions.append("Ưu tiên phác đồ bệnh viện/ICU thay vì phác đồ cộng đồng thông thường")
+
+    if mdr_risk:
+        coverage.append("Vi khuẩn đa kháng theo yếu tố nguy cơ")
+        suggestions.extend(protocol["mdr_addon"])
+
+    if mrsa_risk:
+        coverage.append("MRSA")
+        suggestions.append("Thêm thuốc anti-MRSA theo phác đồ bệnh viện nếu nguy cơ MRSA có ý nghĩa")
+
+    if pseudomonas_risk:
+        coverage.append("Pseudomonas aeruginosa")
+        suggestions.append("Chọn beta-lactam có phổ Pseudomonas theo phác đồ bệnh viện")
+
+    if esbl_risk:
+        coverage.append("ESBL Enterobacterales")
+        suggestions.append("Cân nhắc carbapenem theo phác đồ bệnh viện nếu sốc hoặc nguy cơ ESBL cao")
+
+    if candida_risk:
+        coverage.append("Candida/nấm xâm lấn trong bối cảnh nguy cơ cao")
+        suggestions.append("Cân nhắc kháng nấm kinh nghiệm khi sốc kéo dài và nguy cơ Candida cao; nên hội chẩn nhiễm/ICU")
+
+    if beta_lactam_allergy:
+        warnings.append("Dị ứng beta-lactam nặng: cần phác đồ thay thế theo bệnh viện, cân nhắc hội chẩn dị ứng/nhiễm.")
+
+    if egfr < 30:
+        warnings.append("eGFR/CrCl < 30 mL/phút: cần chỉnh liều nhiều kháng sinh theo chức năng thận.")
+    elif egfr < 60:
+        warnings.append("eGFR/CrCl giảm: kiểm tra liều duy trì và khoảng cách liều theo thận.")
+
+    # Remove duplicates while preserving order
+    coverage = list(dict.fromkeys(coverage))
+    suggestions = list(dict.fromkeys(suggestions))
+    warnings = list(dict.fromkeys(warnings))
+    notes = list(dict.fromkeys(notes))
+
+    return {
+        "coverage": coverage,
+        "suggestions": suggestions,
+        "warnings": warnings,
+        "cultures": protocol["cultures"],
+        "notes": notes,
+    }
+
+# ============================================================
+# 6. Streamlit app
 # ============================================================
 
 st.set_page_config(
@@ -896,11 +1134,213 @@ if high_dose_red_flags:
 else:
     st.info("Chưa chọn yếu tố làm tăng nhu cầu vận mạch/inotrope trong checklist.")
 
+
 # ============================================================
-# Module 8: Final summary
+# Module 8: Empiric antibiotic assistant
 # ============================================================
 
-st.header("8. Tóm tắt quyết định")
+st.header("8. Kháng sinh kinh nghiệm trong nghi nhiễm khuẩn / sepsis")
+
+st.warning(
+    "Module này chỉ gợi ý coverage và nhóm kháng sinh kinh nghiệm. Không tự động kê đơn cố định. "
+    "Luôn đối chiếu phác đồ bệnh viện, antibiogram, dị ứng thuốc, chức năng thận, cân nặng và cấy vi sinh."
+)
+
+auto_show_antibiotic = septic_active or temperature >= 38.0 or shock_or_hypoperfusion
+enable_antibiotic_module = st.checkbox(
+    "Mở module kháng sinh kinh nghiệm",
+    value=auto_show_antibiotic,
+    key="abx_enable_module",
+)
+
+antibiotic_summary_lines = []
+antibiotic_recommendation = None
+infection_focus = "Không đánh giá"
+community_or_hospital = "Không đánh giá"
+
+if enable_antibiotic_module:
+    possible_sepsis = septic_active or temperature >= 38.0
+    septic_shock_for_abx = possible_sepsis and (map_mmHg < 65 or lactate >= 4)
+
+    timing_level, timing_text = antibiotic_timing_advice(
+        septic_shock=septic_shock_for_abx,
+        possible_sepsis=possible_sepsis,
+    )
+
+    st.subheader("8.1. Thời điểm dùng kháng sinh")
+
+    if timing_level == "RED":
+        st.error(timing_text)
+    elif timing_level == "ORANGE":
+        st.warning(timing_text)
+    else:
+        st.info(timing_text)
+
+    st.subheader("8.2. Ổ nhiễm nghi ngờ và bối cảnh mắc phải")
+
+    col_abx_focus1, col_abx_focus2, col_abx_focus3 = st.columns(3)
+
+    with col_abx_focus1:
+        infection_focus = st.selectbox(
+            "Ổ nhiễm nghi ngờ",
+            [
+                "Viêm phổi cộng đồng nặng",
+                "Viêm phổi bệnh viện / ICU / VAP",
+                "Nhiễm khuẩn tiết niệu phức tạp / Pyelonephritis",
+                "Nhiễm khuẩn ổ bụng",
+                "Da - mô mềm nặng",
+                "Nhiễm khuẩn huyết liên quan catheter",
+                "Chưa rõ ổ nhiễm",
+            ],
+            index=0,
+            key="abx_infection_focus",
+        )
+
+    with col_abx_focus2:
+        community_or_hospital = st.selectbox(
+            "Bối cảnh nhiễm khuẩn",
+            ["Cộng đồng", "Bệnh viện", "ICU/VAP"],
+            index=0 if infection_focus == "Viêm phổi cộng đồng nặng" else 1,
+            key="abx_context",
+        )
+
+    with col_abx_focus3:
+        egfr = st.number_input(
+            "eGFR/CrCl ước tính (mL/phút)",
+            min_value=0.0,
+            max_value=200.0,
+            value=45.0 if ckd_any else 80.0,
+            step=1.0,
+            key="abx_egfr",
+        )
+
+    st.subheader("8.3. Cấy bệnh phẩm trước kháng sinh nếu không trì hoãn")
+
+    col_culture1, col_culture2, col_culture3 = st.columns(3)
+
+    with col_culture1:
+        blood_culture = st.checkbox("Cấy máu 2 bộ", value=septic_shock_for_abx, key="abx_culture_blood")
+        sputum_culture = st.checkbox("Cấy đàm / hút đàm", value="phổi" in infection_focus.lower(), key="abx_culture_sputum")
+
+    with col_culture2:
+        urine_culture = st.checkbox("Cấy nước tiểu", value="tiết niệu" in infection_focus.lower(), key="abx_culture_urine")
+        sterile_fluid_culture = st.checkbox("Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi", value=False, key="abx_culture_fluid")
+
+    with col_culture3:
+        catheter_culture = st.checkbox("Cấy catheter nếu nghi liên quan", value="catheter" in infection_focus.lower(), key="abx_culture_catheter")
+        source_control_needed = st.checkbox("Cần đánh giá kiểm soát nguồn nhiễm", value=infection_focus in ["Nhiễm khuẩn ổ bụng", "Da - mô mềm nặng"], key="abx_source_control")
+
+    if septic_shock_for_abx:
+        st.error("Septic shock: không trì hoãn kháng sinh để chờ cấy nếu việc lấy cấy gây chậm trễ đáng kể.")
+
+    st.write("Gợi ý bệnh phẩm theo ổ nhiễm:")
+    for culture_item in ANTIBIOTIC_PROTOCOLS.get(infection_focus, ANTIBIOTIC_PROTOCOLS["Chưa rõ ổ nhiễm"])["cultures"]:
+        st.write(f"- {culture_item}")
+
+    if source_control_needed:
+        st.error("Cần đánh giá source control song song, vì kháng sinh đơn độc có thể không đủ nếu còn ổ nhiễm cần dẫn lưu/can thiệp.")
+
+    st.subheader("8.4. Nguy cơ vi khuẩn đa kháng và yếu tố cần mở rộng phổ")
+
+    col_mdr1, col_mdr2, col_mdr3 = st.columns(3)
+
+    with col_mdr1:
+        recent_hospitalization = st.checkbox("Nhập viện trong 90 ngày", value=False, key="abx_recent_hosp")
+        recent_antibiotics = st.checkbox("Dùng kháng sinh trong 90 ngày", value=False, key="abx_recent_abx")
+        prior_mdr = st.checkbox("Tiền sử cấy MDR/ESBL/MRSA/CRE", value=False, key="abx_prior_mdr")
+
+    with col_mdr2:
+        nursing_home = st.checkbox("Chăm sóc dài hạn / viện dưỡng lão", value=False, key="abx_nursing_home")
+        hemodialysis = st.checkbox("Lọc máu chu kỳ", value=False, key="abx_hemodialysis")
+        immunosuppression = st.checkbox("Suy giảm miễn dịch", value=False, key="abx_immunosuppression")
+
+    with col_mdr3:
+        invasive_device = st.checkbox("Catheter/sonde/dụng cụ xâm lấn lâu ngày", value=False, key="abx_invasive_device")
+        beta_lactam_allergy = st.checkbox("Dị ứng beta-lactam nặng", value=False, key="abx_beta_allergy")
+        prior_colonization_unknown = st.checkbox("Chưa rõ tiền sử vi sinh / thiếu dữ liệu", value=True, key="abx_unknown_micro")
+
+    mdr_risk, mdr_factors = assess_mdr_risk(
+        recent_hospitalization=recent_hospitalization,
+        recent_antibiotics=recent_antibiotics,
+        prior_mdr=prior_mdr,
+        nursing_home=nursing_home,
+        hemodialysis=hemodialysis,
+        immunosuppression=immunosuppression,
+        invasive_device=invasive_device,
+    )
+
+    col_cov1, col_cov2, col_cov3, col_cov4 = st.columns(4)
+    with col_cov1:
+        mrsa_risk = st.checkbox("Nguy cơ MRSA", value=prior_mdr, key="abx_mrsa")
+    with col_cov2:
+        pseudomonas_risk = st.checkbox(
+            "Nguy cơ Pseudomonas",
+            value=infection_focus in ["Viêm phổi bệnh viện / ICU / VAP"] or recent_hospitalization,
+            key="abx_pseudomonas",
+        )
+    with col_cov3:
+        esbl_risk = st.checkbox("Nguy cơ ESBL", value=prior_mdr or recent_antibiotics, key="abx_esbl")
+    with col_cov4:
+        candida_risk = st.checkbox("Nguy cơ Candida/nấm xâm lấn", value=False, key="abx_candida")
+
+    if mdr_risk:
+        st.warning("Có yếu tố nguy cơ MDR: " + ", ".join(mdr_factors))
+    elif prior_colonization_unknown:
+        st.info("Chưa có yếu tố MDR rõ, nhưng tiền sử vi sinh chưa đầy đủ. Cần kiểm tra hồ sơ cấy cũ nếu có.")
+    else:
+        st.success("Chưa ghi nhận yếu tố nguy cơ MDR rõ.")
+
+    antibiotic_recommendation = recommend_antibiotic_coverage(
+        infection_focus=infection_focus,
+        community_or_hospital=community_or_hospital,
+        mdr_risk=mdr_risk,
+        mrsa_risk=mrsa_risk,
+        pseudomonas_risk=pseudomonas_risk,
+        esbl_risk=esbl_risk,
+        candida_risk=candida_risk,
+        beta_lactam_allergy=beta_lactam_allergy,
+        egfr=egfr,
+    )
+
+    st.subheader("8.5. Gợi ý coverage và nhóm kháng sinh")
+
+    st.write("**Cần bao phủ:**")
+    for item in antibiotic_recommendation["coverage"]:
+        st.write(f"- {item}")
+
+    st.write("**Gợi ý nhóm kháng sinh kinh nghiệm:**")
+    for item in antibiotic_recommendation["suggestions"]:
+        st.write(f"- {item}")
+
+    if antibiotic_recommendation["warnings"]:
+        for warning in antibiotic_recommendation["warnings"]:
+            st.warning(warning)
+
+    st.write("**Ghi chú source control:**")
+    for note in antibiotic_recommendation["notes"]:
+        st.write(f"- {note}")
+
+    st.subheader("8.6. Stewardship và review sau 24–48–72 giờ")
+    st.write("- Đánh giá lại chẩn đoán nhiễm khuẩn khi có diễn tiến lâm sàng, hình ảnh học và kết quả cấy.")
+    st.write("- Xuống thang kháng sinh khi có kháng sinh đồ hoặc khi xác suất MDR thấp.")
+    st.write("- Ngưng kháng sinh nếu xác suất nhiễm khuẩn thấp và có chẩn đoán thay thế phù hợp.")
+    st.write("- Chỉnh liều theo eGFR/CrCl, cân nặng, mức độ nặng, lọc máu và khuyến cáo dược lâm sàng.")
+
+    antibiotic_summary_lines.append(f"- Kháng sinh: đã bật module; ổ nhiễm nghi ngờ: {infection_focus}; bối cảnh: {community_or_hospital}")
+    antibiotic_summary_lines.append(f"- Timing: {timing_text}")
+    antibiotic_summary_lines.append("- Coverage chính: " + "; ".join(antibiotic_recommendation["coverage"][:5]))
+    antibiotic_summary_lines.append("- Gợi ý nhóm: " + "; ".join(antibiotic_recommendation["suggestions"][:4]))
+
+else:
+    st.info("Module kháng sinh đang tắt. Có thể bật khi nghi nhiễm khuẩn/sepsis hoặc cần checklist cấy bệnh phẩm.")
+    antibiotic_summary_lines.append("- Kháng sinh: module chưa bật")
+
+
+# ============================================================
+# Module 9: Final summary
+# ============================================================
+
+st.header("9. Tóm tắt quyết định")
 
 summary_lines = []
 summary_lines.append(f"- Cân nặng: {weight_kg:.1f} kg")
@@ -934,6 +1374,8 @@ if inotrope_rec["need_inotrope"]:
     summary_lines.append(f"- Inotrope: cân nhắc {inotrope_name}, pha {ino_total_drug_mg:.1f} mg/{ino_final_volume_ml:.0f} mL, liều {inotrope_dose:.3f} mcg/kg/phút → {inotrope_result['pump_rate_ml_hour']:.2f} mL/giờ")
 else:
     summary_lines.append("- Inotrope: chưa đủ dữ kiện để tự động gợi ý; tiếp tục đánh giá EF/VTI/CO và tưới máu")
+
+summary_lines.extend(antibiotic_summary_lines)
 
 for line in summary_lines:
     st.write(line)
