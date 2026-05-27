@@ -50,15 +50,19 @@ def suggest_noradrenaline_dose(map_mmHg: float, lactate: float, cardiogenic_acti
     Gợi ý liều khởi đầu norepinephrine mang tính thực hành.
     App không tự tạo y lệnh; bác sĩ phải xác nhận.
     """
-    if map_mmHg < 55 or lactate > 4:
+    # Quan trọng: lactate cao một mình KHÔNG phải chỉ định norepinephrine nếu MAP không thấp.
+    if map_mmHg >= 65:
+        dose = 0.03
+        reason = "MAP hiện ≥ 65 → không có chỉ định tự động dùng norepinephrine. Nếu mở máy tính thủ công, chỉ dùng liều test/tham khảo rất thấp và phải có chỉ định lâm sàng riêng."
+    elif map_mmHg < 55:
         dose = 0.10
-        reason = "MAP rất thấp hoặc lactate cao → gợi ý bắt đầu khoảng 0,10 mcg/kg/phút rồi chỉnh theo MAP/tưới máu."
-    elif map_mmHg < 65:
+        reason = "MAP rất thấp → gợi ý bắt đầu khoảng 0,10 mcg/kg/phút rồi chỉnh theo MAP/tưới máu."
+    else:
         dose = 0.05
         reason = "MAP < 65 → gợi ý bắt đầu khoảng 0,05 mcg/kg/phút rồi chỉnh theo MAP/tưới máu."
-    else:
-        dose = 0.03
-        reason = "MAP hiện chưa quá thấp → nếu vẫn cần vận mạch, cân nhắc liều thấp và chỉnh theo mục tiêu."
+
+    if map_mmHg < 65 and lactate > 4:
+        reason += " Lactate cao củng cố tình trạng giảm tưới máu, cần song song tìm nguyên nhân và theo dõi đáp ứng."
 
     if cardiogenic_active and fluid_overload_risk:
         reason += " Có HFrEF/sung huyết: dùng liều thấp nhất đủ đạt MAP, tránh tăng hậu tải quá mức và đánh giá sớm nhu cầu inotrope."

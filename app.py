@@ -300,227 +300,344 @@ else:
     st.metric("Dịch tinh thể tham khảo 30 mL/kg", f"{standard_fluid_ml:.0f} mL")
 
 # ============================================================
-# Module 5: Vasopressor dose suggestion and calculator
+# Module 5: Vasopressor calculator - only when clinically indicated
 # ============================================================
 
-st.header("5. Vận mạch: gợi ý liều, nồng độ pha và tốc độ bơm")
+st.header("5. Vận mạch: chỉ bật khi có tụt huyết áp/sốc cần nâng MAP")
 
-suggested_ne_dose, ne_reason = suggest_noradrenaline_dose(
-    map_mmHg=map_mmHg,
-    lactate=lactate,
-    cardiogenic_active=cardiogenic_active,
-    fluid_overload_risk=fluid_overload_risk,
-)
-recommended_preset_name, recommended_preset, all_ne_rates = choose_vasopressor_preset_for_rate(weight_kg, suggested_ne_dose)
+# Mặc định: không đề xuất vận mạch nếu MAP đang cao/bình thường.
+# Lactate cao một mình KHÔNG phải chỉ định norepinephrine nếu MAP đã 195 mmHg.
+vasopressor_indication = map_mmHg < 65
+manual_vasopressor_override = False
 
-st.info("Gợi ý tự động: " + ne_reason)
+# Giá trị mặc định để phần summary không lỗi khi module bị tắt.
+drug_name = "Không dùng vận mạch"
+total_drug_mg = 0.0
+final_volume_ml = 0.0
+desired_dose = 0.0
+vasopressor_result = {
+    "total_drug_mg": 0.0,
+    "total_drug_mcg": 0.0,
+    "final_concentration_mcg_ml": 0.0,
+    "required_mcg_min": 0.0,
+    "pump_rate_ml_hour": 0.0,
+}
 
-with st.expander("Xem bảng tốc độ bơm theo các nồng độ Noradrenaline ở liều gợi ý"):
-    for name, result in all_ne_rates.items():
-        st.write(f"- {name}: **{result['pump_rate_ml_hour']:.2f} mL/giờ**")
-
-col_vaso_input1, col_vaso_input2 = st.columns(2)
-
-preset_options = list(VASOPRESSOR_PRESETS.keys()) + ["Tùy chỉnh"]
-recommended_index = preset_options.index(recommended_preset_name)
-
-with col_vaso_input1:
-    drug_preset = st.selectbox("Chọn preset pha thuốc", preset_options, index=recommended_index)
-
-with col_vaso_input2:
-    desired_dose = st.number_input(
-        "Liều mong muốn (mcg/kg/phút)",
-        min_value=0.001,
-        max_value=5.0,
-        value=float(suggested_ne_dose),
-        step=0.01,
-        format="%.3f",
+if map_mmHg >= 90:
+    st.success(
+        f"MAP hiện tại {map_mmHg:.0f} mmHg: không có chỉ định gợi ý vận mạch để nâng MAP. "
+        "Nếu bệnh nhân đang phù phổi cấp/tăng huyết áp, ưu tiên xử trí suy hô hấp, giảm tiền tải/hậu tải, lợi tiểu/giãn mạch theo phác đồ và tìm nguyên nhân lactate tăng."
+    )
+    manual_vasopressor_override = st.checkbox(
+        "Vẫn mở máy tính vận mạch thủ công",
+        value=False,
+        key="manual_vasopressor_override_high_map",
+    )
+elif 65 <= map_mmHg < 90:
+    st.info(
+        f"MAP hiện tại {map_mmHg:.0f} mmHg: chưa có chỉ định tự động dùng norepinephrine. "
+        "Có thể mở máy tính nếu đang chuẩn bị vận mạch trong bối cảnh tụt HA động học hoặc sau an thần/đặt nội khí quản."
+    )
+    manual_vasopressor_override = st.checkbox(
+        "Mở máy tính vận mạch thủ công",
+        value=False,
+        key="manual_vasopressor_override_mid_map",
+    )
+else:
+    st.error(
+        f"MAP hiện tại {map_mmHg:.0f} mmHg < 65: có chỉ định đánh giá vận mạch nếu tụt HA dai dẳng hoặc không thể bù dịch an toàn."
     )
 
-if drug_preset != "Tùy chỉnh":
-    selected = VASOPRESSOR_PRESETS[drug_preset]
-    drug_name = selected["drug"]
-    total_drug_mg = selected["total_drug_mg"]
-    final_volume_ml = selected["final_volume_ml"]
-else:
-    col_custom1, col_custom2, col_custom3 = st.columns(3)
-    with col_custom1:
-        drug_name = st.selectbox("Tên thuốc", ["Noradrenaline", "Adrenaline", "Khác"])
-    with col_custom2:
-        total_drug_mg = st.number_input("Tổng lượng thuốc trong bơm tiêm (mg)", min_value=0.001, max_value=500.0, value=8.0, step=1.0)
-    with col_custom3:
-        final_volume_ml = st.number_input("Tổng thể tích sau pha (mL)", min_value=1.0, max_value=500.0, value=50.0, step=1.0)
+show_vasopressor_calculator = vasopressor_indication or manual_vasopressor_override
 
-vasopressor_result = calculate_infusion_rate(weight_kg, desired_dose, total_drug_mg, final_volume_ml)
+if show_vasopressor_calculator:
+    suggested_ne_dose, ne_reason = suggest_noradrenaline_dose(
+        map_mmHg=map_mmHg,
+        lactate=lactate,
+        cardiogenic_active=cardiogenic_active,
+        fluid_overload_risk=fluid_overload_risk,
+    )
+    recommended_preset_name, recommended_preset, all_ne_rates = choose_vasopressor_preset_for_rate(weight_kg, suggested_ne_dose)
 
-st.subheader("Kết quả vận mạch")
-vaso_col1, vaso_col2, vaso_col3, vaso_col4 = st.columns(4)
-vaso_col1.metric("Thuốc", drug_name)
-vaso_col2.metric("Pha thuốc", f"{total_drug_mg:.1f} mg/{final_volume_ml:.0f} mL")
-vaso_col3.metric("Nồng độ", f"{vasopressor_result['final_concentration_mcg_ml']:.1f} mcg/mL")
-vaso_col4.metric("Tốc độ bơm", f"{vasopressor_result['pump_rate_ml_hour']:.2f} mL/giờ")
+    if vasopressor_indication:
+        st.info("Gợi ý tự động: " + ne_reason)
+    else:
+        st.warning(
+            "Đang mở máy tính thủ công dù MAP không thấp. App sẽ không xem đây là khuyến cáo dùng vận mạch."
+        )
 
-st.write(f"Nhu cầu thuốc: **{vasopressor_result['required_mcg_min']:.2f} mcg/phút** ở bệnh nhân **{weight_kg:.1f} kg**, liều **{desired_dose:.3f} mcg/kg/phút**.")
-st.info("Công thức: mL/giờ = liều mcg/kg/phút × cân nặng kg × 60 ÷ nồng độ sau pha mcg/mL.")
+    with st.expander("Xem bảng tốc độ bơm theo các nồng độ Noradrenaline ở liều gợi ý", expanded=False):
+        for name, result in all_ne_rates.items():
+            st.write(f"- {name}: **{result['pump_rate_ml_hour']:.2f} mL/giờ**")
 
-if drug_name == "Noradrenaline" and map_mmHg < 65:
-    st.warning("MAP < 65 mmHg. Noradrenaline thường là vận mạch đầu tay trong sốc nhiễm khuẩn; ưu tiên đường truyền trung tâm nếu có. Nếu dùng ngoại biên, cần theo dõi thoát mạch sát theo phác đồ bệnh viện.")
+    col_vaso_input1, col_vaso_input2 = st.columns(2)
+
+    preset_options = list(VASOPRESSOR_PRESETS.keys()) + ["Tùy chỉnh"]
+    recommended_index = preset_options.index(recommended_preset_name)
+
+    with col_vaso_input1:
+        drug_preset = st.selectbox("Chọn preset pha thuốc", preset_options, index=recommended_index)
+
+    with col_vaso_input2:
+        desired_dose = st.number_input(
+            "Liều mong muốn (mcg/kg/phút)",
+            min_value=0.001,
+            max_value=5.0,
+            value=float(suggested_ne_dose),
+            step=0.01,
+            format="%.3f",
+        )
+
+    if drug_preset != "Tùy chỉnh":
+        selected = VASOPRESSOR_PRESETS[drug_preset]
+        drug_name = selected["drug"]
+        total_drug_mg = selected["total_drug_mg"]
+        final_volume_ml = selected["final_volume_ml"]
+    else:
+        col_custom1, col_custom2, col_custom3 = st.columns(3)
+        with col_custom1:
+            drug_name = st.selectbox("Tên thuốc", ["Noradrenaline", "Adrenaline", "Khác"])
+        with col_custom2:
+            total_drug_mg = st.number_input("Tổng lượng thuốc trong bơm tiêm (mg)", min_value=0.001, max_value=500.0, value=8.0, step=1.0)
+        with col_custom3:
+            final_volume_ml = st.number_input("Tổng thể tích sau pha (mL)", min_value=1.0, max_value=500.0, value=50.0, step=1.0)
+
+    vasopressor_result = calculate_infusion_rate(weight_kg, desired_dose, total_drug_mg, final_volume_ml)
+
+    st.subheader("Kết quả vận mạch")
+    vaso_col1, vaso_col2, vaso_col3, vaso_col4 = st.columns(4)
+    vaso_col1.metric("Thuốc", drug_name)
+    vaso_col2.metric("Pha thuốc", f"{total_drug_mg:.1f} mg/{final_volume_ml:.0f} mL")
+    vaso_col3.metric("Nồng độ", f"{vasopressor_result['final_concentration_mcg_ml']:.1f} mcg/mL")
+    vaso_col4.metric("Tốc độ bơm", f"{vasopressor_result['pump_rate_ml_hour']:.2f} mL/giờ")
+
+    st.write(
+        f"Nhu cầu thuốc: **{vasopressor_result['required_mcg_min']:.2f} mcg/phút** "
+        f"ở bệnh nhân **{weight_kg:.1f} kg**, liều **{desired_dose:.3f} mcg/kg/phút**."
+    )
+    st.info("Công thức: mL/giờ = liều mcg/kg/phút × cân nặng kg × 60 ÷ nồng độ sau pha mcg/mL.")
+
+    if drug_name == "Noradrenaline" and map_mmHg < 65:
+        st.warning(
+            "MAP < 65 mmHg. Noradrenaline thường là vận mạch đầu tay trong sốc nhiễm khuẩn; "
+            "ưu tiên đường truyền trung tâm nếu có. Nếu dùng ngoại biên, cần theo dõi thoát mạch sát theo phác đồ bệnh viện."
+        )
 
 # ============================================================
 # Module 6: Inotrope decision support and calculator
 # ============================================================
 
-st.header("6. Inotrope: quyết định dùng, chọn thuốc và tính tốc độ bơm")
+st.header("6. Inotrope: chỉ bật khi có low-output phenotype phù hợp")
 
-st.write(
-    "Mục này dành cho bệnh cảnh có rối loạn chức năng tim/low-output phenotype: EF giảm, chi lạnh, lactate cao, CRT kéo dài, "
-    "tưới máu kém dù MAP đã được hỗ trợ hoặc không thể truyền thêm dịch an toàn."
+# Dữ kiện sàng lọc, không tự động bắt dùng inotrope.
+ef_reduced = severe_hfrEF or cardiogenic_active
+cold_hypoperfusion = st.checkbox("Chi lạnh / CRT kéo dài / mottling", value=False, key="ino_cold_screen")
+persistent_lactate = lactate > 4
+rapid_af = heart_rate >= 120
+low_vti_or_low_co = st.checkbox("VTI/CO thấp trên POCUS/monitor", value=False, key="ino_low_co_screen")
+rv_failure = st.checkbox("Nghi suy thất phải / tăng áp phổi", value=False, key="ino_rv_failure_screen")
+ischemia_concern = st.checkbox("Nghi thiếu máu cơ tim cấp", value=False, key="ino_ischemia_screen")
+
+# Với MAP rất cao, nhất là phù phổi cấp/tăng HA, dobutamine thường không phải hướng mặc định.
+# App chỉ mở tính liều nếu có low CO xác nhận hoặc bác sĩ override.
+hypertensive_state = map_mmHg >= 90
+inotrope_indication = (
+    (map_mmHg < 65 and (ef_reduced or low_vti_or_low_co or cold_hypoperfusion))
+    or (65 <= map_mmHg < 90 and low_vti_or_low_co and cold_hypoperfusion)
 )
 
-col_ino_a, col_ino_b, col_ino_c = st.columns(3)
-with col_ino_a:
-    ef_reduced = st.checkbox("EF giảm rõ / LV co bóp kém", value=severe_hfrEF or cardiogenic_active)
-    cold_hypoperfusion = st.checkbox("Chi lạnh / CRT kéo dài / mottling", value=True)
-    persistent_lactate = st.checkbox("Lactate cao hoặc không giảm", value=lactate > 4)
+manual_inotrope_override = False
 
-with col_ino_b:
-    norepi_running_or_planned = st.checkbox("Đang/chuẩn bị chạy Noradrenaline", value=map_mmHg < 65)
-    map_supported = st.checkbox("MAP đã/đang được hỗ trợ bằng vận mạch", value=map_mmHg >= 60 or norepi_running_or_planned)
-    rapid_af = st.checkbox("Rung nhĩ nhanh / nhịp nhanh đáng kể", value=heart_rate >= 120)
+# Giá trị mặc định để summary không lỗi.
+inotrope_rec = {
+    "need_inotrope": False,
+    "level": "BLUE",
+    "drug": "Không dùng inotrope",
+    "dose": 0.0,
+    "preset": "Dobutamine 250 mg/50 mL",
+    "text": "Không có chỉ định tự động gợi ý inotrope.",
+    "warnings": [],
+}
+inotrope_name = "Không dùng inotrope"
+ino_total_drug_mg = 0.0
+ino_final_volume_ml = 0.0
+inotrope_dose = 0.0
+inotrope_result = {
+    "total_drug_mg": 0.0,
+    "total_drug_mcg": 0.0,
+    "final_concentration_mcg_ml": 0.0,
+    "required_mcg_min": 0.0,
+    "pump_rate_ml_hour": 0.0,
+}
 
-with col_ino_c:
-    low_vti_or_low_co = st.checkbox("VTI/CO thấp trên POCUS/monitor", value=False)
-    rv_failure = st.checkbox("Nghi suy thất phải / tăng áp phổi", value=False)
-    ischemia_concern = st.checkbox("Nghi thiếu máu cơ tim cấp", value=False)
-
-inotrope_rec = suggest_inotrope(
-    cardiogenic_active=cardiogenic_active,
-    septic_active=septic_active,
-    fluid_overload_risk=fluid_overload_risk,
-    fluid_responsive=fluid_responsive,
-    map_mmHg=map_mmHg,
-    lactate=lactate,
-    ef_reduced=ef_reduced,
-    cold_hypoperfusion=cold_hypoperfusion or persistent_lactate or low_vti_or_low_co,
-    pulmonary_edema=pulmonary_edema or diffuse_b_lines,
-    rapid_af=rapid_af,
-    ckd=ckd_any or anuric_ckd,
-)
-
-if inotrope_rec["level"] == "RED":
-    st.error(inotrope_rec["text"])
-elif inotrope_rec["level"] == "ORANGE":
-    st.warning(inotrope_rec["text"])
+if hypertensive_state:
+    st.success(
+        f"MAP {map_mmHg:.0f} mmHg: không tự động gợi ý dobutamine/inotrope. "
+        "Nếu là phù phổi cấp do tăng huyết áp, ưu tiên oxy/NIV, giảm tiền tải-hậu tải, lợi tiểu/giãn mạch theo phác đồ, kiểm soát thiếu máu cơ tim/loạn nhịp và tìm nguyên nhân lactate tăng."
+    )
+    if low_vti_or_low_co:
+        st.warning(
+            "Có nhập VTI/CO thấp: đây là tình huống đặc biệt. Chỉ cân nhắc inotrope khi đã đánh giá huyết động đầy đủ và có theo dõi sát."
+        )
+    manual_inotrope_override = st.checkbox(
+        "Vẫn mở máy tính inotrope thủ công",
+        value=False,
+        key="manual_inotrope_override_high_map",
+    )
+elif inotrope_indication:
+    st.warning(
+        "Có dữ kiện gợi ý low-output phenotype. App sẽ mở phần gợi ý inotrope và tính tốc độ bơm."
+    )
 else:
-    st.info(inotrope_rec["text"])
-
-for warning in inotrope_rec["warnings"]:
-    st.warning(warning)
-
-if rv_failure:
-    st.info("Suy thất phải/tăng áp phổi: cân nhắc chuyên gia hồi sức/tim mạch; lựa chọn inotrope/giãn mạch phổi tùy huyết động và oxy hóa.")
-
-if ischemia_concern:
-    st.warning("Nghi thiếu máu cơ tim cấp: kiểm soát nhịp, ECG/troponin, hội chẩn tim mạch/cathlab; inotrope có thể tăng nhu cầu oxy cơ tim.")
-
-st.subheader("Tính tốc độ bơm inotrope")
-
-inotrope_preset_options = list(INOTROPE_PRESETS.keys()) + ["Tùy chỉnh"]
-ino_default_index = inotrope_preset_options.index(inotrope_rec["preset"])
-
-col_ino_calc1, col_ino_calc2 = st.columns(2)
-with col_ino_calc1:
-    inotrope_preset = st.selectbox("Chọn preset inotrope", inotrope_preset_options, index=ino_default_index)
-with col_ino_calc2:
-    inotrope_dose = st.number_input(
-        "Liều inotrope mong muốn (mcg/kg/phút)",
-        min_value=0.001,
-        max_value=30.0,
-        value=float(inotrope_rec["dose"]),
-        step=0.5,
-        format="%.3f",
+    st.info(
+        "Chưa đủ dữ kiện để mở inotrope tự động. Có thể mở thủ công nếu đã có bằng chứng low cardiac output."
+    )
+    manual_inotrope_override = st.checkbox(
+        "Mở máy tính inotrope thủ công",
+        value=False,
+        key="manual_inotrope_override_normal_map",
     )
 
-if inotrope_preset != "Tùy chỉnh":
-    ino_selected = INOTROPE_PRESETS[inotrope_preset]
-    inotrope_name = ino_selected["drug"]
-    ino_total_drug_mg = ino_selected["total_drug_mg"]
-    ino_final_volume_ml = ino_selected["final_volume_ml"]
-else:
-    col_ino_custom1, col_ino_custom2, col_ino_custom3 = st.columns(3)
-    with col_ino_custom1:
-        inotrope_name = st.selectbox("Tên inotrope", ["Dobutamine", "Milrinone", "Khác"])
-    with col_ino_custom2:
-        ino_total_drug_mg = st.number_input("Tổng lượng inotrope trong bơm (mg)", min_value=0.001, max_value=1000.0, value=250.0, step=10.0)
-    with col_ino_custom3:
-        ino_final_volume_ml = st.number_input("Tổng thể tích inotrope sau pha (mL)", min_value=1.0, max_value=500.0, value=50.0, step=1.0)
+show_inotrope_calculator = inotrope_indication or manual_inotrope_override
 
-inotrope_result = calculate_infusion_rate(weight_kg, inotrope_dose, ino_total_drug_mg, ino_final_volume_ml)
+if show_inotrope_calculator:
+    norepi_running_or_planned = st.checkbox("Đang/chuẩn bị chạy Noradrenaline", value=map_mmHg < 65, key="ino_norepi")
+    map_supported = st.checkbox("MAP đã/đang được hỗ trợ bằng vận mạch", value=map_mmHg >= 60 or norepi_running_or_planned, key="ino_map_supported")
 
-ino_col1, ino_col2, ino_col3, ino_col4 = st.columns(4)
-ino_col1.metric("Inotrope", inotrope_name)
-ino_col2.metric("Pha thuốc", f"{ino_total_drug_mg:.1f} mg/{ino_final_volume_ml:.0f} mL")
-ino_col3.metric("Nồng độ", f"{inotrope_result['final_concentration_mcg_ml']:.0f} mcg/mL")
-ino_col4.metric("Tốc độ bơm", f"{inotrope_result['pump_rate_ml_hour']:.2f} mL/giờ")
+    inotrope_rec = suggest_inotrope(
+        cardiogenic_active=cardiogenic_active,
+        septic_active=septic_active,
+        fluid_overload_risk=fluid_overload_risk,
+        fluid_responsive=fluid_responsive,
+        map_mmHg=map_mmHg,
+        lactate=lactate,
+        ef_reduced=ef_reduced,
+        cold_hypoperfusion=cold_hypoperfusion or persistent_lactate or low_vti_or_low_co,
+        pulmonary_edema=pulmonary_edema or diffuse_b_lines,
+        rapid_af=rapid_af,
+        ckd=ckd_any or anuric_ckd,
+    )
 
-if inotrope_name == "Dobutamine":
-    if inotrope_dose < 2.5:
-        st.info("Dobutamine liều rất thấp. Có thể phù hợp để test đáp ứng ở bệnh nhân dễ tụt HA/loạn nhịp.")
-    elif 2.5 <= inotrope_dose <= 20:
-        st.success("Khoảng liều Dobutamine thường dùng: 2,5–20 mcg/kg/phút, chỉnh theo đáp ứng tưới máu và tác dụng phụ.")
+    if not inotrope_indication:
+        st.warning("Đang mở máy tính thủ công. App không xem đây là khuyến cáo tự động dùng inotrope.")
+
+    if inotrope_rec["level"] == "RED":
+        st.error(inotrope_rec["text"])
+    elif inotrope_rec["level"] == "ORANGE":
+        st.warning(inotrope_rec["text"])
     else:
-        st.warning("Dobutamine >20 mcg/kg/phút: liều cao, nguy cơ nhịp nhanh/loạn nhịp/tăng nhu cầu oxy cơ tim.")
+        st.info(inotrope_rec["text"])
 
-if inotrope_name == "Milrinone":
-    st.warning("Milrinone có thể gây tụt HA và tích lũy ở bệnh thận. Trong sốc, thường tránh bolus loading và cần giảm liều nếu CKD.")
-    if inotrope_dose > 0.75:
-        st.error("Milrinone >0,75 mcg/kg/phút: kiểm tra lại liều và chức năng thận.")
+    for warning in inotrope_rec["warnings"]:
+        st.warning(warning)
+
+    if rv_failure:
+        st.info("Suy thất phải/tăng áp phổi: cân nhắc chuyên gia hồi sức/tim mạch; lựa chọn inotrope/giãn mạch phổi tùy huyết động và oxy hóa.")
+
+    if ischemia_concern:
+        st.warning("Nghi thiếu máu cơ tim cấp: kiểm soát nhịp, ECG/troponin, hội chẩn tim mạch/cathlab; inotrope có thể tăng nhu cầu oxy cơ tim.")
+
+    st.subheader("Tính tốc độ bơm inotrope")
+
+    inotrope_preset_options = list(INOTROPE_PRESETS.keys()) + ["Tùy chỉnh"]
+    ino_default_index = inotrope_preset_options.index(inotrope_rec["preset"])
+
+    col_ino_calc1, col_ino_calc2 = st.columns(2)
+    with col_ino_calc1:
+        inotrope_preset = st.selectbox("Chọn preset inotrope", inotrope_preset_options, index=ino_default_index)
+    with col_ino_calc2:
+        inotrope_dose = st.number_input(
+            "Liều inotrope mong muốn (mcg/kg/phút)",
+            min_value=0.001,
+            max_value=30.0,
+            value=float(inotrope_rec["dose"]),
+            step=0.5,
+            format="%.3f",
+        )
+
+    if inotrope_preset != "Tùy chỉnh":
+        ino_selected = INOTROPE_PRESETS[inotrope_preset]
+        inotrope_name = ino_selected["drug"]
+        ino_total_drug_mg = ino_selected["total_drug_mg"]
+        ino_final_volume_ml = ino_selected["final_volume_ml"]
+    else:
+        col_ino_custom1, col_ino_custom2, col_ino_custom3 = st.columns(3)
+        with col_ino_custom1:
+            inotrope_name = st.selectbox("Tên inotrope", ["Dobutamine", "Milrinone", "Khác"])
+        with col_ino_custom2:
+            ino_total_drug_mg = st.number_input("Tổng lượng inotrope trong bơm (mg)", min_value=0.001, max_value=1000.0, value=250.0, step=10.0)
+        with col_ino_custom3:
+            ino_final_volume_ml = st.number_input("Tổng thể tích inotrope sau pha (mL)", min_value=1.0, max_value=500.0, value=50.0, step=1.0)
+
+    inotrope_result = calculate_infusion_rate(weight_kg, inotrope_dose, ino_total_drug_mg, ino_final_volume_ml)
+
+    ino_col1, ino_col2, ino_col3, ino_col4 = st.columns(4)
+    ino_col1.metric("Inotrope", inotrope_name)
+    ino_col2.metric("Pha thuốc", f"{ino_total_drug_mg:.1f} mg/{ino_final_volume_ml:.0f} mL")
+    ino_col3.metric("Nồng độ", f"{inotrope_result['final_concentration_mcg_ml']:.0f} mcg/mL")
+    ino_col4.metric("Tốc độ bơm", f"{inotrope_result['pump_rate_ml_hour']:.2f} mL/giờ")
+
+    if inotrope_name == "Dobutamine":
+        if inotrope_dose < 2.5:
+            st.info("Dobutamine liều rất thấp. Có thể phù hợp để test đáp ứng ở bệnh nhân dễ tụt HA/loạn nhịp.")
+        elif 2.5 <= inotrope_dose <= 20:
+            st.success("Khoảng liều Dobutamine thường dùng: 2,5–20 mcg/kg/phút, chỉnh theo đáp ứng tưới máu và tác dụng phụ.")
+        else:
+            st.warning("Dobutamine >20 mcg/kg/phút: liều cao, nguy cơ nhịp nhanh/loạn nhịp/tăng nhu cầu oxy cơ tim.")
+
+    if inotrope_name == "Milrinone":
+        st.warning("Milrinone có thể gây tụt HA và tích lũy ở bệnh thận. Trong sốc, thường tránh bolus loading và cần giảm liều nếu CKD.")
+        if inotrope_dose > 0.75:
+            st.error("Milrinone >0,75 mcg/kg/phút: kiểm tra lại liều và chức năng thận.")
 
 # ============================================================
 # Module 7: High-dose vasoactive warning
 # ============================================================
 
-st.header("7. Cảnh báo liều cao và checklist tìm nguyên nhân")
+st.header("7. Cảnh báo liều cao và nguyên nhân sốc kháng trị")
 
-if drug_name == "Noradrenaline":
-    if desired_dose > 1.0:
-        st.error("CẢNH BÁO ĐỎ: Noradrenaline > 1 mcg/kg/phút. Đây là liều rất cao. Cần gọi hỗ trợ hồi sức, đánh giá lại nguyên nhân sốc và cân nhắc phối hợp vận mạch/inotrope/mechanical support.")
-    elif desired_dose > 0.5:
-        st.warning("Cảnh báo: Noradrenaline > 0,5 mcg/kg/phút. Cần đánh giá lại nguyên nhân sốc, đáp ứng dịch, chức năng tim và nguồn nhiễm.")
-    else:
-        st.success("Liều Noradrenaline hiện chưa vượt ngưỡng cảnh báo cao trong app.")
-
-elif drug_name == "Adrenaline":
-    if desired_dose > 0.5:
-        st.warning("Adrenaline liều cao. Theo dõi loạn nhịp, lactate, thiếu máu cơ tim và đánh giá lại chỉ định.")
-    else:
-        st.success("Liều Adrenaline hiện chưa vượt ngưỡng cảnh báo cao trong app.")
-
-st.subheader("Checklist cần xem lại khi cần vận mạch/inotrope liều cao")
-col_hd1, col_hd2, col_hd3 = st.columns(3)
-with col_hd1:
-    severe_acidosis = st.checkbox("Toan máu nặng")
-    hypocalcemia = st.checkbox("Hạ calci")
-    hypovolemia_unresolved = st.checkbox("Còn thiếu thể tích tuần hoàn")
-with col_hd2:
-    tension_pneumothorax = st.checkbox("Tràn khí màng phổi áp lực")
-    tamponade = st.checkbox("Tamponade tim")
-    massive_pe = st.checkbox("Thuyên tắc phổi nguy cơ cao")
-with col_hd3:
-    heart_failure = st.checkbox("Suy tim / rối loạn co bóp")
-    uncontrolled_source = st.checkbox("Nguồn nhiễm chưa kiểm soát")
-    bleeding = st.checkbox("Xuất huyết chưa kiểm soát")
-
-high_dose_red_flags = any([
-    severe_acidosis, hypocalcemia, hypovolemia_unresolved, tension_pneumothorax,
-    tamponade, massive_pe, heart_failure, uncontrolled_source, bleeding,
-])
-
-if high_dose_red_flags:
-    st.error("Có yếu tố có thể làm sốc kháng trị hoặc tăng nhu cầu thuốc vận mạch/inotrope. Cần xử trí nguyên nhân song song, không chỉ tăng liều thuốc.")
+if not show_vasopressor_calculator and not show_inotrope_calculator:
+    st.info("Không có vận mạch/inotrope đang được tính trong app, nên ẩn checklist liều cao để giảm rối mắt.")
+    high_dose_red_flags = False
 else:
-    st.info("Chưa chọn yếu tố làm tăng nhu cầu vận mạch/inotrope trong checklist.")
+    if drug_name == "Noradrenaline":
+        if desired_dose > 1.0:
+            st.error("CẢNH BÁO ĐỎ: Noradrenaline > 1 mcg/kg/phút. Đây là liều rất cao. Cần gọi hỗ trợ hồi sức, đánh giá lại nguyên nhân sốc và cân nhắc phối hợp vận mạch/inotrope/mechanical support.")
+        elif desired_dose > 0.5:
+            st.warning("Cảnh báo: Noradrenaline > 0,5 mcg/kg/phút. Cần đánh giá lại nguyên nhân sốc, đáp ứng dịch, chức năng tim và nguồn nhiễm.")
+        else:
+            st.success("Liều Noradrenaline hiện chưa vượt ngưỡng cảnh báo cao trong app.")
 
+    elif drug_name == "Adrenaline":
+        if desired_dose > 0.5:
+            st.warning("Adrenaline liều cao. Theo dõi loạn nhịp, lactate, thiếu máu cơ tim và đánh giá lại chỉ định.")
+        else:
+            st.success("Liều Adrenaline hiện chưa vượt ngưỡng cảnh báo cao trong app.")
+
+    with st.expander("Checklist cần xem lại khi cần vận mạch/inotrope liều cao", expanded=False):
+        col_hd1, col_hd2, col_hd3 = st.columns(3)
+        with col_hd1:
+            severe_acidosis = st.checkbox("Toan máu nặng")
+            hypocalcemia = st.checkbox("Hạ calci")
+            hypovolemia_unresolved = st.checkbox("Còn thiếu thể tích tuần hoàn")
+        with col_hd2:
+            tension_pneumothorax = st.checkbox("Tràn khí màng phổi áp lực")
+            tamponade = st.checkbox("Tamponade tim")
+            massive_pe = st.checkbox("Thuyên tắc phổi nguy cơ cao")
+        with col_hd3:
+            heart_failure = st.checkbox("Suy tim / rối loạn co bóp")
+            uncontrolled_source = st.checkbox("Nguồn nhiễm chưa kiểm soát")
+            bleeding = st.checkbox("Xuất huyết chưa kiểm soát")
+
+        high_dose_red_flags = any([
+            severe_acidosis, hypocalcemia, hypovolemia_unresolved, tension_pneumothorax,
+            tamponade, massive_pe, heart_failure, uncontrolled_source, bleeding,
+        ])
+
+        if high_dose_red_flags:
+            st.error("Có yếu tố có thể làm sốc kháng trị hoặc tăng nhu cầu thuốc vận mạch/inotrope. Cần xử trí nguyên nhân song song, không chỉ tăng liều thuốc.")
+        else:
+            st.info("Chưa chọn yếu tố làm tăng nhu cầu vận mạch/inotrope trong checklist.")
 
 # ============================================================
 # Module 8: Empiric antibiotic assistant
@@ -610,12 +727,6 @@ if enable_antibiotic_module:
 
     current_protocol = ANTIBIOTIC_PROTOCOLS.get(infection_focus, ANTIBIOTIC_PROTOCOLS["Chưa rõ ổ nhiễm"])
 
-    st.subheader("8.3. Cấy bệnh phẩm trước kháng sinh nếu không trì hoãn")
-
-    st.write("**Bệnh phẩm app gợi ý theo ổ nhiễm đang chọn:**")
-    for culture_item in current_protocol["cultures"]:
-        st.write(f"- {culture_item}")
-
     culture_options = [
         "Cấy máu 2 bộ",
         "Cấy nước tiểu",
@@ -636,23 +747,35 @@ if enable_antibiotic_module:
     if infection_focus == "Nhiễm khuẩn huyết liên quan catheter" and "Cấy catheter nếu nghi liên quan" not in suggested_cultures:
         suggested_cultures.append("Cấy catheter nếu nghi liên quan")
 
-    selected_cultures = st.multiselect(
-        "Checklist cấy cần thực hiện/đã thực hiện",
-        options=culture_options,
-        default=suggested_cultures,
-        key="abx_cultures_" + infection_focus,
-    )
+    source_control_needed = infection_focus in [
+        "Nhiễm khuẩn ổ bụng",
+        "Da - mô mềm nặng",
+        "Nhiễm khuẩn tiết niệu phức tạp / Pyelonephritis",
+        "Nhiễm khuẩn huyết liên quan catheter",
+    ]
 
-    source_control_needed = st.checkbox(
-        "Cần đánh giá kiểm soát nguồn nhiễm",
-        value=infection_focus in [
-            "Nhiễm khuẩn ổ bụng",
-            "Da - mô mềm nặng",
-            "Nhiễm khuẩn tiết niệu phức tạp / Pyelonephritis",
-            "Nhiễm khuẩn huyết liên quan catheter",
-        ],
-        key="abx_source_control_" + infection_focus,
-    )
+    st.subheader("8.3. Bệnh phẩm và source control")
+    st.info("Mục này được thu gọn vì đa số thao tác cấy là checklist cơ bản. App chỉ nhắc nhanh theo ổ nhiễm và không làm rối giao diện.")
+
+    st.write("**Gợi ý nhanh theo ổ nhiễm:** " + "; ".join(suggested_cultures))
+
+    with st.expander("Mở checklist cấy bệnh phẩm chi tiết", expanded=False):
+        st.write("**Bệnh phẩm app gợi ý theo ổ nhiễm đang chọn:**")
+        for culture_item in current_protocol["cultures"]:
+            st.write(f"- {culture_item}")
+
+        selected_cultures = st.multiselect(
+            "Checklist cấy cần thực hiện/đã thực hiện",
+            options=culture_options,
+            default=suggested_cultures,
+            key="abx_cultures_" + infection_focus,
+        )
+
+        source_control_needed = st.checkbox(
+            "Cần đánh giá kiểm soát nguồn nhiễm",
+            value=source_control_needed,
+            key="abx_source_control_" + infection_focus,
+        )
 
     if high_risk_infection_for_abx:
         st.error("Nhiễm khuẩn nặng/septic shock/high-risk sepsis: không trì hoãn kháng sinh để chờ cấy nếu việc lấy cấy gây chậm trễ đáng kể.")
