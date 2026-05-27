@@ -20,7 +20,9 @@ from inotrope_logic import (
 from antibiotic_logic import (
     assess_mdr_risk,
     antibiotic_timing_advice,
+    infer_specific_resistance_risks,
     recommend_antibiotic_coverage,
+    suggest_likely_pathogens,
 )
 from antibiotic_presets_local import ANTIBIOTIC_PROTOCOLS
 
@@ -545,16 +547,23 @@ community_or_hospital = "Không đánh giá"
 
 if enable_antibiotic_module:
     possible_sepsis = septic_active or temperature >= 38.0
-    septic_shock_for_abx = possible_sepsis and (map_mmHg < 65 or lactate >= 4)
+    infection_with_organ_dysfunction = possible_sepsis and (lactate >= 2 or urine_output_ml_kg_h < 0.5 or spo2 < 90)
+    septic_shock_for_abx = possible_sepsis and map_mmHg < 65
+    high_risk_infection_for_abx = possible_sepsis and (septic_shock_for_abx or lactate >= 4 or infection_with_organ_dysfunction)
 
     timing_level, timing_text = antibiotic_timing_advice(
-        septic_shock=septic_shock_for_abx,
+        septic_shock=high_risk_infection_for_abx,
         possible_sepsis=possible_sepsis,
     )
 
     st.subheader("8.1. Thời điểm dùng kháng sinh")
 
-    if timing_level == "RED":
+    if map_mmHg >= 65 and lactate >= 4 and possible_sepsis:
+        st.error(
+            "Không tụt MAP nhưng lactate ≥ 4 mmol/L kèm nghi nhiễm khuẩn: xem như nhiễm khuẩn nặng/giảm tưới máu mô hoặc stress nặng. "
+            "Không chờ tụt huyết áp mới dùng kháng sinh nếu xác suất nhiễm khuẩn cao."
+        )
+    elif timing_level == "RED":
         st.error(timing_text)
     elif timing_level == "ORANGE":
         st.warning(timing_text)
@@ -599,28 +608,54 @@ if enable_antibiotic_module:
             key="abx_egfr",
         )
 
+    current_protocol = ANTIBIOTIC_PROTOCOLS.get(infection_focus, ANTIBIOTIC_PROTOCOLS["Chưa rõ ổ nhiễm"])
+
     st.subheader("8.3. Cấy bệnh phẩm trước kháng sinh nếu không trì hoãn")
 
-    col_culture1, col_culture2, col_culture3 = st.columns(3)
-
-    with col_culture1:
-        blood_culture = st.checkbox("Cấy máu 2 bộ", value=septic_shock_for_abx, key="abx_culture_blood")
-        sputum_culture = st.checkbox("Cấy đàm / hút đàm", value="phổi" in infection_focus.lower(), key="abx_culture_sputum")
-
-    with col_culture2:
-        urine_culture = st.checkbox("Cấy nước tiểu", value="tiết niệu" in infection_focus.lower(), key="abx_culture_urine")
-        sterile_fluid_culture = st.checkbox("Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi", value=False, key="abx_culture_fluid")
-
-    with col_culture3:
-        catheter_culture = st.checkbox("Cấy catheter nếu nghi liên quan", value="catheter" in infection_focus.lower(), key="abx_culture_catheter")
-        source_control_needed = st.checkbox("Cần đánh giá kiểm soát nguồn nhiễm", value=infection_focus in ["Nhiễm khuẩn ổ bụng", "Da - mô mềm nặng"], key="abx_source_control")
-
-    if septic_shock_for_abx:
-        st.error("Septic shock: không trì hoãn kháng sinh để chờ cấy nếu việc lấy cấy gây chậm trễ đáng kể.")
-
-    st.write("Gợi ý bệnh phẩm theo ổ nhiễm:")
-    for culture_item in ANTIBIOTIC_PROTOCOLS.get(infection_focus, ANTIBIOTIC_PROTOCOLS["Chưa rõ ổ nhiễm"])["cultures"]:
+    st.write("**Bệnh phẩm app gợi ý theo ổ nhiễm đang chọn:**")
+    for culture_item in current_protocol["cultures"]:
         st.write(f"- {culture_item}")
+
+    culture_options = [
+        "Cấy máu 2 bộ",
+        "Cấy nước tiểu",
+        "Cấy đàm / hút đàm",
+        "Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi",
+        "Cấy catheter nếu nghi liên quan",
+        "Cấy mô/dịch mủ sâu nếu có",
+    ]
+    suggested_cultures = [item for item in culture_options if any(item.lower().split(" /")[0] in c.lower() for c in current_protocol["cultures"])]
+    if "Cấy máu 2 bộ" in current_protocol["cultures"] and "Cấy máu 2 bộ" not in suggested_cultures:
+        suggested_cultures.insert(0, "Cấy máu 2 bộ")
+    if infection_focus == "Nhiễm khuẩn tiết niệu phức tạp / Pyelonephritis" and "Cấy nước tiểu" not in suggested_cultures:
+        suggested_cultures.append("Cấy nước tiểu")
+    if infection_focus == "Viêm phổi cộng đồng nặng" and "Cấy đàm / hút đàm" not in suggested_cultures:
+        suggested_cultures.append("Cấy đàm / hút đàm")
+    if infection_focus == "Nhiễm khuẩn ổ bụng" and "Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi" not in suggested_cultures:
+        suggested_cultures.append("Cấy dịch vô khuẩn / dịch ổ bụng / màng phổi")
+    if infection_focus == "Nhiễm khuẩn huyết liên quan catheter" and "Cấy catheter nếu nghi liên quan" not in suggested_cultures:
+        suggested_cultures.append("Cấy catheter nếu nghi liên quan")
+
+    selected_cultures = st.multiselect(
+        "Checklist cấy cần thực hiện/đã thực hiện",
+        options=culture_options,
+        default=suggested_cultures,
+        key="abx_cultures_" + infection_focus,
+    )
+
+    source_control_needed = st.checkbox(
+        "Cần đánh giá kiểm soát nguồn nhiễm",
+        value=infection_focus in [
+            "Nhiễm khuẩn ổ bụng",
+            "Da - mô mềm nặng",
+            "Nhiễm khuẩn tiết niệu phức tạp / Pyelonephritis",
+            "Nhiễm khuẩn huyết liên quan catheter",
+        ],
+        key="abx_source_control_" + infection_focus,
+    )
+
+    if high_risk_infection_for_abx:
+        st.error("Nhiễm khuẩn nặng/septic shock/high-risk sepsis: không trì hoãn kháng sinh để chờ cấy nếu việc lấy cấy gây chậm trễ đáng kể.")
 
     if source_control_needed:
         st.error("Cần đánh giá source control song song, vì kháng sinh đơn độc có thể không đủ nếu còn ổ nhiễm cần dẫn lưu/can thiệp.")
@@ -654,19 +689,44 @@ if enable_antibiotic_module:
         invasive_device=invasive_device,
     )
 
+    inferred_risks = infer_specific_resistance_risks(
+        infection_focus=infection_focus,
+        community_or_hospital=community_or_hospital,
+        recent_hospitalization=recent_hospitalization,
+        recent_antibiotics=recent_antibiotics,
+        prior_mdr=prior_mdr,
+        nursing_home=nursing_home,
+        hemodialysis=hemodialysis,
+        immunosuppression=immunosuppression,
+        invasive_device=invasive_device,
+        prior_colonization_unknown=prior_colonization_unknown,
+    )
+
+    st.write("**App tự suy luận nguy cơ mở rộng phổ từ checklist:**")
+    auto_cols = st.columns(4)
+    auto_cols[0].metric("MRSA", "Có" if inferred_risks["mrsa_risk"] else "Không rõ")
+    auto_cols[1].metric("Pseudomonas", "Có" if inferred_risks["pseudomonas_risk"] else "Không rõ")
+    auto_cols[2].metric("ESBL", "Có" if inferred_risks["esbl_risk"] else "Không rõ")
+    auto_cols[3].metric("Candida", "Có" if inferred_risks["candida_risk"] else "Không rõ")
+
+    with st.expander("Xem lý do app suy luận nguy cơ"):
+        for risk_name, reason_list in inferred_risks["reasons"].items():
+            meaningful_reasons = [r for r in reason_list if "Tiền sử vi sinh chưa rõ" not in r]
+            if meaningful_reasons:
+                st.write(f"**{risk_name}:**")
+                for reason in meaningful_reasons:
+                    st.write(f"- {reason}")
+
+    st.write("Bác sĩ có thể override nếu có dữ liệu vi sinh/antibiogram cụ thể:")
     col_cov1, col_cov2, col_cov3, col_cov4 = st.columns(4)
     with col_cov1:
-        mrsa_risk = st.checkbox("Nguy cơ MRSA", value=prior_mdr, key="abx_mrsa")
+        mrsa_risk = st.checkbox("Bao phủ MRSA", value=inferred_risks["mrsa_risk"], key="abx_mrsa")
     with col_cov2:
-        pseudomonas_risk = st.checkbox(
-            "Nguy cơ Pseudomonas",
-            value=infection_focus in ["Viêm phổi bệnh viện / ICU / VAP"] or recent_hospitalization,
-            key="abx_pseudomonas",
-        )
+        pseudomonas_risk = st.checkbox("Bao phủ Pseudomonas", value=inferred_risks["pseudomonas_risk"], key="abx_pseudomonas")
     with col_cov3:
-        esbl_risk = st.checkbox("Nguy cơ ESBL", value=prior_mdr or recent_antibiotics, key="abx_esbl")
+        esbl_risk = st.checkbox("Bao phủ ESBL", value=inferred_risks["esbl_risk"], key="abx_esbl")
     with col_cov4:
-        candida_risk = st.checkbox("Nguy cơ Candida/nấm xâm lấn", value=False, key="abx_candida")
+        candida_risk = st.checkbox("Bao phủ Candida/nấm xâm lấn", value=inferred_risks["candida_risk"], key="abx_candida")
 
     if mdr_risk:
         st.warning("Có yếu tố nguy cơ MDR: " + ", ".join(mdr_factors))
@@ -674,6 +734,20 @@ if enable_antibiotic_module:
         st.info("Chưa có yếu tố MDR rõ, nhưng tiền sử vi sinh chưa đầy đủ. Cần kiểm tra hồ sơ cấy cũ nếu có.")
     else:
         st.success("Chưa ghi nhận yếu tố nguy cơ MDR rõ.")
+
+    likely_pathogens = suggest_likely_pathogens(
+        infection_focus=infection_focus,
+        community_or_hospital=community_or_hospital,
+        mrsa_risk=mrsa_risk,
+        pseudomonas_risk=pseudomonas_risk,
+        esbl_risk=esbl_risk,
+        candida_risk=candida_risk,
+    )
+
+    st.subheader("8.5. Tác nhân có khả năng và gợi ý coverage")
+    st.write("**Tác nhân/nhóm tác nhân cần nghĩ tới:**")
+    for pathogen in likely_pathogens:
+        st.write(f"- {pathogen}")
 
     antibiotic_recommendation = recommend_antibiotic_coverage(
         infection_focus=infection_focus,
@@ -686,8 +760,6 @@ if enable_antibiotic_module:
         beta_lactam_allergy=beta_lactam_allergy,
         egfr=egfr,
     )
-
-    st.subheader("8.5. Gợi ý coverage và nhóm kháng sinh")
 
     st.write("**Cần bao phủ:**")
     for item in antibiotic_recommendation["coverage"]:
@@ -713,6 +785,8 @@ if enable_antibiotic_module:
 
     antibiotic_summary_lines.append(f"- Kháng sinh: đã bật module; ổ nhiễm nghi ngờ: {infection_focus}; bối cảnh: {community_or_hospital}")
     antibiotic_summary_lines.append(f"- Timing: {timing_text}")
+    antibiotic_summary_lines.append("- Bệnh phẩm gợi ý: " + "; ".join(selected_cultures))
+    antibiotic_summary_lines.append("- Tác nhân cần nghĩ: " + "; ".join(likely_pathogens[:6]))
     antibiotic_summary_lines.append("- Coverage chính: " + "; ".join(antibiotic_recommendation["coverage"][:5]))
     antibiotic_summary_lines.append("- Gợi ý nhóm: " + "; ".join(antibiotic_recommendation["suggestions"][:4]))
 

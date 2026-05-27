@@ -49,6 +49,133 @@ def antibiotic_timing_advice(septic_shock: bool, possible_sepsis: bool) -> tuple
     )
 
 
+def infer_specific_resistance_risks(
+    infection_focus: str,
+    community_or_hospital: str,
+    recent_hospitalization: bool,
+    recent_antibiotics: bool,
+    prior_mdr: bool,
+    nursing_home: bool,
+    hemodialysis: bool,
+    immunosuppression: bool,
+    invasive_device: bool,
+    prior_colonization_unknown: bool,
+) -> dict:
+    """
+    Tự gợi ý nguy cơ MRSA/Pseudomonas/ESBL/Candida từ ổ nhiễm và yếu tố nguy cơ.
+    Đây là gợi ý an toàn để bác sĩ đỡ phải nhớ, không thay thế antibiogram/phác đồ bệnh viện.
+    """
+    focus_lower = infection_focus.lower()
+    hospital_context = community_or_hospital in ["Bệnh viện", "ICU/VAP"]
+    severe_context = hospital_context or recent_hospitalization or recent_antibiotics or prior_mdr
+
+    mrsa = False
+    pseudomonas = False
+    esbl = False
+    candida = False
+
+    reasons = {"MRSA": [], "Pseudomonas": [], "ESBL": [], "Candida": []}
+
+    # ESBL/MDR Enterobacterales: rất liên quan ở UTI/ổ bụng khi có KS gần đây, nhập viện, tiền sử MDR.
+    if prior_mdr:
+        esbl = True
+        reasons["ESBL"].append("Tiền sử cấy MDR/ESBL/MRSA/CRE")
+    if recent_antibiotics:
+        esbl = True
+        reasons["ESBL"].append("Dùng kháng sinh trong 90 ngày")
+    if recent_hospitalization and ("tiết niệu" in focus_lower or "bụng" in focus_lower or hospital_context):
+        esbl = True
+        reasons["ESBL"].append("Nhập viện gần đây trong bối cảnh UTI/ổ bụng/nhiễm bệnh viện")
+    if nursing_home or hemodialysis:
+        esbl = True
+        reasons["ESBL"].append("Chăm sóc y tế kéo dài/lọc máu làm tăng nguy cơ Enterobacterales kháng thuốc")
+
+    # Pseudomonas: HAP/VAP, ICU, dụng cụ xâm lấn, sonde/catheter lâu ngày, nhập viện/KS gần đây.
+    if "bệnh viện" in focus_lower or "vap" in focus_lower or community_or_hospital == "ICU/VAP":
+        pseudomonas = True
+        reasons["Pseudomonas"].append("Viêm phổi bệnh viện/ICU/VAP")
+    if invasive_device and ("tiết niệu" in focus_lower or hospital_context):
+        pseudomonas = True
+        reasons["Pseudomonas"].append("Sonde/catheter/dụng cụ xâm lấn lâu ngày")
+    if recent_hospitalization or recent_antibiotics:
+        if "phổi" in focus_lower or "tiết niệu" in focus_lower or hospital_context:
+            pseudomonas = True
+            reasons["Pseudomonas"].append("Nhập viện hoặc dùng kháng sinh gần đây")
+
+    # MRSA: viêm phổi bệnh viện/ICU, catheter, tiền sử MRSA/MDR, lọc máu, chăm sóc dài hạn.
+    if "bệnh viện" in focus_lower or "vap" in focus_lower or "catheter" in focus_lower:
+        mrsa = True
+        reasons["MRSA"].append("Ổ nhiễm bệnh viện/VAP/catheter")
+    if prior_mdr or hemodialysis or nursing_home:
+        mrsa = True
+        reasons["MRSA"].append("Tiền sử MDR/chăm sóc y tế kéo dài/lọc máu")
+
+    # Candida: ICU, ổ bụng phức tạp, catheter, suy giảm miễn dịch, KS kéo dài, sốc dai dẳng.
+    if immunosuppression:
+        candida = True
+        reasons["Candida"].append("Suy giảm miễn dịch")
+    if recent_antibiotics and ("bụng" in focus_lower or "catheter" in focus_lower or community_or_hospital == "ICU/VAP"):
+        candida = True
+        reasons["Candida"].append("Kháng sinh gần đây trong bối cảnh ICU/ổ bụng/catheter")
+    if invasive_device and ("catheter" in focus_lower or community_or_hospital == "ICU/VAP"):
+        candida = True
+        reasons["Candida"].append("Catheter/dụng cụ xâm lấn trong bối cảnh nguy cơ cao")
+
+    # Nếu thiếu dữ liệu, không tự bật tất cả; chỉ nhắc kiểm tra vi sinh cũ.
+    if prior_colonization_unknown:
+        for key in reasons:
+            reasons[key].append("Tiền sử vi sinh chưa rõ: cần kiểm tra hồ sơ cấy cũ/antibiogram")
+
+    return {
+        "mrsa_risk": mrsa,
+        "pseudomonas_risk": pseudomonas,
+        "esbl_risk": esbl,
+        "candida_risk": candida,
+        "reasons": reasons,
+    }
+
+
+def suggest_likely_pathogens(
+    infection_focus: str,
+    community_or_hospital: str,
+    mrsa_risk: bool,
+    pseudomonas_risk: bool,
+    esbl_risk: bool,
+    candida_risk: bool,
+) -> list:
+    """Gợi ý nhóm tác nhân thường gặp theo ổ nhiễm và nguy cơ mở rộng phổ."""
+    focus_lower = infection_focus.lower()
+    pathogens = []
+
+    if "tiết niệu" in focus_lower:
+        pathogens.extend(["E. coli", "Klebsiella/Enterobacterales", "Proteus spp."])
+        if community_or_hospital in ["Bệnh viện", "ICU/VAP"]:
+            pathogens.append("Enterococcus trong một số bối cảnh")
+    elif "phổi cộng đồng" in focus_lower:
+        pathogens.extend(["Streptococcus pneumoniae", "H. influenzae", "Gram âm hô hấp", "Atypical pathogens"])
+    elif "phổi bệnh viện" in focus_lower or "vap" in focus_lower:
+        pathogens.extend(["Gram âm bệnh viện", "Pseudomonas/Acinetobacter tùy ICU", "S. aureus"])
+    elif "bụng" in focus_lower:
+        pathogens.extend(["Enterobacterales", "Kỵ khí", "Enterococcus trong một số bối cảnh bệnh viện"])
+    elif "da" in focus_lower:
+        pathogens.extend(["Streptococcus", "Staphylococcus aureus", "Gram âm/kỵ khí nếu hoại tử/đái tháo đường/vùng tầng sinh môn"])
+    elif "catheter" in focus_lower:
+        pathogens.extend(["Coagulase-negative staphylococci", "Staphylococcus aureus", "Gram âm bệnh viện", "Candida nếu nguy cơ cao"])
+    else:
+        pathogens.extend(["Phổi", "Tiết niệu", "Ổ bụng", "Da-mô mềm", "Catheter", "Thần kinh trung ương tùy bệnh cảnh"])
+
+    if pseudomonas_risk:
+        pathogens.append("Pseudomonas aeruginosa")
+    if mrsa_risk:
+        pathogens.append("MRSA")
+    if esbl_risk:
+        pathogens.append("ESBL Enterobacterales")
+    if candida_risk:
+        pathogens.append("Candida/nấm xâm lấn trong bối cảnh nguy cơ cao")
+
+    return list(dict.fromkeys(pathogens))
+
+
 def recommend_antibiotic_coverage(
     infection_focus: str,
     community_or_hospital: str,
