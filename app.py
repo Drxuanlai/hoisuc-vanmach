@@ -949,8 +949,20 @@ else:
 
 summary_lines.append(f"- Fluid responsiveness: {fr_interpretation}")
 summary_lines.append(f"- Chiến lược dịch: {strategy_text}")
-summary_lines.append(f"- Vận mạch: {drug_name}, pha {total_drug_mg:.1f} mg/{final_volume_ml:.0f} mL, nồng độ {vasopressor_result['final_concentration_mcg_ml']:.1f} mcg/mL")
-summary_lines.append(f"- Liều vận mạch: {desired_dose:.3f} mcg/kg/phút → {vasopressor_result['pump_rate_ml_hour']:.2f} mL/giờ")
+if map_mmHg < 65 and drug_name != "Không dùng vận mạch":
+    summary_lines.append(
+        f"- Vận mạch: {drug_name}, pha {total_drug_mg:.1f} mg/{final_volume_ml:.0f} mL, "
+        f"nồng độ {vasopressor_result['final_concentration_mcg_ml']:.1f} mcg/mL"
+    )
+    summary_lines.append(
+        f"- Liều vận mạch: {desired_dose:.3f} mcg/kg/phút → "
+        f"{vasopressor_result['pump_rate_ml_hour']:.2f} mL/giờ"
+    )
+else:
+    summary_lines.append(
+        "- Vận mạch: chưa có chỉ định nâng MAP bằng vận mạch vì MAP hiện ≥65 mmHg. "
+        "Không tự động gợi ý Noradrenaline."
+    )
 
 if inotrope_rec["need_inotrope"]:
     summary_lines.append(f"- Inotrope: cân nhắc {inotrope_name}, pha {ino_total_drug_mg:.1f} mg/{ino_final_volume_ml:.0f} mL, liều {inotrope_dose:.3f} mcg/kg/phút → {inotrope_result['pump_rate_ml_hour']:.2f} mL/giờ")
